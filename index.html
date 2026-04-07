@@ -261,7 +261,7 @@ function LoginScreen({onLogin}){
       <div style={{background:C.card,borderRadius:20,border:`1px solid ${C.border}`,padding:"48px 40px",width:"min(400px,92vw)",boxShadow:"0 8px 40px rgba(0,0,0,0.10)"}}>
         <div style={{textAlign:"center",marginBottom:36}}>
           <div style={{fontSize:11,color:C.muted,letterSpacing:"0.18em",fontWeight:500,marginBottom:10}}>SOCIAL WORKER</div>
-          <div style={{fontSize:24,fontWeight:700,fontFamily:serif,color:C.text,marginBottom:6}}>莊子昂 社工</div>
+          <div style={{fontSize:24,fontWeight:700,fontFamily:serif,color:C.text,marginBottom:6}}>社工工作站</div>
           <div style={{fontSize:13,color:C.muted}}>中正萬華・身心障礙者服務中心</div>
         </div>
         <div style={{marginBottom:16}}>
@@ -552,7 +552,7 @@ function QuickRecordPanel({data,setData,onSave}){
   const handleSave=async()=>{
     if(!form.caseId){alert("請選擇個案");return;}
     if(!form.content.trim()){alert("請填寫聯繫內容");return;}
-    const item={...form,id:uid(),createdBy:"莊子昂",createdDate:toDay(),lastModified:toDay()};
+    const item={...form,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setSaved(true);
@@ -1793,7 +1793,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
 
   const handleAdd=async()=>{
     if(!addRec.contactPerson.trim()&&!addRec.content.trim()){alert("請填寫聯繫對象或聯繫內容");return;}
-    const item={...addRec,id:uid(),caseId:caseData.id,createdBy:"莊子昂",createdDate:toDay(),lastModified:toDay()};
+    const item={...addRec,id:uid(),caseId:caseData.id,createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setAddRec(blank);setShowAdd(false);
@@ -2159,14 +2159,57 @@ function MonthlyReport({data,setData,onSave}){
   );
 }
 
+// ── USER SETTINGS ────────────────────────────────────────────────
+function UserSettings({userName,onSave,onClose}){
+  const [name,setName]=useState(userName||"");
+  const [saving,setSaving]=useState(false);
+  const [done,setDone]=useState(false);
+
+  const handleSave=async()=>{
+    if(!name.trim()){alert("請填寫名稱");return;}
+    setSaving(true);
+    await onSave(name.trim());
+    setDone(true);setSaving(false);
+    setTimeout(onClose,800);
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(26,51,50,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:C.card,borderRadius:16,width:"min(400px,92vw)",boxShadow:"0 24px 64px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+        <div style={{background:C.sidebar,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:15,fontWeight:700,color:"#fff",fontFamily:serif}}>用戶設定</span>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16}}>✕</button>
+        </div>
+        <div style={{padding:"24px"}}>
+          <label style={{fontSize:12,color:C.muted,display:"block",marginBottom:6,fontWeight:500}}>社工顯示名稱</label>
+          <input value={name} onChange={e=>setName(e.target.value)}
+            placeholder="輸入你的名稱"
+            style={{...inp(),fontSize:15,marginBottom:8}}
+            onKeyDown={e=>e.key==="Enter"&&handleSave()}/>
+          <div style={{fontSize:11,color:C.muted,marginBottom:20}}>此名稱會顯示在登入畫面、側邊欄及聯繫紀錄中</div>
+          {done
+            ? <div style={{textAlign:"center",color:"#2A9D5C",fontWeight:600,fontSize:14}}>✓ 已儲存！</div>
+            : <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                <button onClick={onClose} style={{padding:"8px 18px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13,fontFamily:font}}>取消</button>
+                <button onClick={handleSave} disabled={saving} style={{padding:"8px 22px",borderRadius:8,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:13,fontFamily:font,fontWeight:600,opacity:saving?0.7:1}}>
+                  {saving?"儲存中...":"儲存"}
+                </button>
+              </div>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── SIDEBAR ─────────────────────────────────────────────────────
-function Sidebar({view,setView,syncStatus,onSetup,onLogout}){
+function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettings}){
   const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"visits",label:"訪視紀錄",icon:"≣"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"},{id:"monthly",label:"月報表",icon:"📊"}];
   return(
     <div className="sidebar" style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0,height:"100vh"}}>
       <div className="brand" style={{padding:"28px 20px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
         <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",letterSpacing:"0.18em",fontWeight:500,marginBottom:7}}>SOCIAL WORKER</div>
-        <div style={{fontSize:17,fontWeight:700,color:"#fff",fontFamily:serif}}>莊子昂 社工</div>
+        <div style={{fontSize:17,fontWeight:700,color:"#fff",fontFamily:serif}}>{userName||"社工"} 社工</div>
         <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",marginTop:3,lineHeight:1.5}}>中正萬華<br/>身心障礙者服務中心</div>
       </div>
       <nav style={{flex:1,padding:"10px 0",overflowY:"auto"}}>
@@ -2175,6 +2218,7 @@ function Sidebar({view,setView,syncStatus,onSetup,onLogout}){
       <div className="bottom-bar" style={{borderTop:"1px solid rgba(255,255,255,0.07)"}}>
         <SyncBadge status={syncStatus}/>
         {!isFirebaseConfigured()&&<button onClick={onSetup} style={{width:"100%",padding:"8px 16px",background:"rgba(201,123,58,0.2)",border:"none",color:C.accent,fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⚙️ 設定雲端同步</button>}
+        <button onClick={onUserSettings} style={{width:"100%",padding:"8px 16px",background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⚙ 用戶設定</button>
         {onLogout&&<button onClick={onLogout} style={{width:"100%",padding:"8px 16px",background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⎋ 登出</button>}
         <div style={{padding:"10px 16px",fontSize:10,color:"rgba(255,255,255,0.2)",textAlign:"center"}}>{new Date().toLocaleDateString("zh-TW",{month:"long",day:"numeric"})}</div>
       </div>
@@ -2191,6 +2235,8 @@ function App(){
   const [ready,setReady]=useState(false);
   const [authReady,setAuthReady]=useState(false);
   const [user,setUser]=useState(null);
+  const [userName,setUserName]=useState("");
+  const [showUserSettings,setShowUserSettings]=useState(false);
 
   // 初始化時先等 Firebase Auth 狀態確認
   useEffect(()=>{
@@ -2219,6 +2265,15 @@ function App(){
       if(user&&isFirebaseConfigured()&&firebaseReady){
         setSyncStatus("syncing");
         try{
+          // 載入用戶名稱
+          try{
+            const profileDoc=await db.collection("users").doc(user.uid).get();
+            if(profileDoc.exists&&profileDoc.data().displayName){
+              setUserName(profileDoc.data().displayName);
+            }else{
+              setUserName(user.email?.split("@")[0]||"社工");
+            }
+          }catch{}
           // 嘗試搬移舊資料（只在第一次登入時執行）
           const migrated=await migrateOldData();
           if(migrated)console.log("✅ 舊資料搬移完成");
@@ -2246,6 +2301,13 @@ function App(){
 
   // 本機備份
   useEffect(()=>{if(ready&&user)saveLocal(data);},[data,ready,user]);
+
+  const saveUserName=async(name)=>{
+    setUserName(name);
+    if(db&&user){
+      await db.collection("users").doc(user.uid).set({displayName:name},{merge:true});
+    }
+  };
 
   const onSave=async(col,item)=>{
     if(!firebaseReady)return;
@@ -2278,7 +2340,8 @@ function App(){
   return(
     <div className="layout" style={{display:"flex",height:"100vh",overflow:"hidden",fontFamily:font,background:C.bg}}>
       {showSetup&&<SetupGuide/>}
-      <Sidebar view={view} setView={setView} syncStatus={syncStatus} onSetup={()=>setShowSetup(v=>!v)} onLogout={user?handleLogout:null}/>
+      <Sidebar view={view} setView={setView} syncStatus={syncStatus} onSetup={()=>setShowSetup(v=>!v)} onLogout={user?handleLogout:null} userName={userName} onUserSettings={()=>setShowUserSettings(true)}/>
+      {showUserSettings&&<UserSettings userName={userName} onSave={saveUserName} onClose={()=>setShowUserSettings(false)}/>}
       <div className="main-content" style={{flex:1,overflow:"auto",padding:"32px 36px"}}>
         {view==="dashboard"&&<Dashboard data={data} setView={setView} setData={setData} onSave={onSave}/>}
         {view==="calendar"  &&<CalendarView data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
