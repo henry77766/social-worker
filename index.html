@@ -168,7 +168,7 @@ const DEFAULT_RESOURCES=[
   {id:"r5",name:"安心專線",cat:"精神",phone:"1925",addr:"",note:"24小時自殺防治"},
   {id:"r6",name:"萬華區公所",cat:"行政",phone:"02-23361180",addr:"台北市萬華區昆明街120號",note:""},
 ];
-const EMPTY={cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],events:[],caseRecords:[]};
+const EMPTY={cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],events:[],caseRecords:[],levelHistory:[]};
 
 // 讀取 localStorage
 function loadLocal(){
@@ -179,25 +179,28 @@ function saveLocal(data){
 }
 
 // Firebase CRUD helpers
-// ── 舊資料搬移（一次性）────────────────────────────────────────────
-// 從舊路徑 /cases 搬到新路徑 /users/{uid}/cases
+// ── 舊資料搬移（一次性，僅限第一位原始使用者）────────────────────
 async function migrateOldData(){
   if(!db)return false;
   const uid=getUid();
   if(!uid)return false;
 
-  // 檢查新路徑是否已有資料（已搬過就不再搬）
+  // 全域標記：若已有人完成搬移，其他人跳過
+  const metaDoc=await db.collection("_meta").doc("migration").get();
+  if(metaDoc.exists)return false;
+
+  // 檢查新路徑是否已有資料
   const checkSnap=await db.collection("users").doc(uid).collection("cases").limit(1).get();
-  if(!checkSnap.empty)return false; // 已有資料，跳過
+  if(!checkSnap.empty)return false;
 
   // 檢查舊路徑是否有資料
-  const COLS=["cases","visits","resources","diary","events","caseRecords"];
+  const COLS=["cases","visits","resources","diary","events","caseRecords","levelHistory"];
   let hasOld=false;
   for(const col of COLS){
     const snap=await db.collection(col).limit(1).get();
     if(!snap.empty){hasOld=true;break;}
   }
-  if(!hasOld)return false; // 舊路徑也沒資料，不需搬移
+  if(!hasOld)return false;
 
   // 開始搬移
   const batch=db.batch();
@@ -210,6 +213,10 @@ async function migrateOldData(){
       count++;
     });
   }
+  // 寫入全域標記，防止其他用戶重複搬移
+  batch.set(db.collection("_meta").doc("migration"),{
+    migratedBy:uid,date:new Date().toISOString(),count
+  });
   if(count>0)await batch.commit();
   return count>0;
 }
@@ -849,7 +856,7 @@ function CaseEditModal({caseData, onSave, onClose}){
 }
 
 // ── CASE VIEW MODAL ──────────────────────────────────────────────
-function CaseViewModal({c, caseRecords, onEdit, onClose}){
+function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
@@ -916,6 +923,80 @@ function CaseViewModal({c, caseRecords, onEdit, onClose}){
               <div style={{fontSize:13,color:C.text,lineHeight:1.8,background:C.cardAlt,padding:"12px 16px",borderRadius:8,whiteSpace:"pre-wrap"}}>{c.note}</div>
             </Section>
           )}
+          {/* ── 等級異動歷程 ── */}
+          {(()=>{
+            const hist=[...(levelHistory||[]).filter(h=>h.caseId===c.id)].sort((a,b)=>b.date.localeCompare(a.date));
+            const [showAdd,setShowAdd]=useState(false);
+            const [addForm,setAddForm]=useState({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
+            const LEVEL_FIELDS={"systemLevel":"系統分案等級","initialLevel":"個案起始等級","changeLevel":"個案異動等級"};
+            const LEVEL_OPTS=["","一般","特殊","高關懷","急迫"];
+            const handleAddHistory=async()=>{
+              if(!addForm.to){alert("請填寫變動後等級");return;}
+              const record={id:uid(),caseId:c.id,caseName:c.name,date:addForm.date,field:addForm.field,from:addForm.from,to:addForm.to,note:addForm.note,auto:false};
+              setData(d=>({...d,levelHistory:[...(d.levelHistory||[]),record]}));
+              await onSave("levelHistory",record);
+              setAddForm({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
+              setShowAdd(false);
+            };
+            return(
+              <Section title={`📊 等級異動歷程（共 ${hist.length} 筆）`}>
+                <button onClick={()=>setShowAdd(v=>!v)}
+                  style={{padding:"5px 14px",borderRadius:8,border:`1px solid ${C.accent}`,background:"#FFF8F0",color:C.accent,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,marginBottom:10}}>
+                  {showAdd?"取消":"＋ 補登歷史異動"}
+                </button>
+                {showAdd&&(
+                  <div style={{background:"#FFF8F0",border:`1px solid ${C.accent}`,borderRadius:10,padding:"14px 16px",marginBottom:12}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px",marginBottom:10}}>
+                      <div>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>日期</label>
+                        <input type="date" value={addForm.date} onChange={e=>setAddForm(f=>({...f,date:e.target.value}))} style={{...inp(),fontSize:13}}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>等級類型</label>
+                        <select value={addForm.field} onChange={e=>setAddForm(f=>({...f,field:e.target.value}))} style={{...inp(),fontSize:13}}>
+                          {Object.entries(LEVEL_FIELDS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>變動前等級</label>
+                        <input value={addForm.from} onChange={e=>setAddForm(f=>({...f,from:e.target.value}))} placeholder="選填" style={{...inp(),fontSize:13}}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>變動後等級 *</label>
+                        <input value={addForm.to} onChange={e=>setAddForm(f=>({...f,to:e.target.value}))} placeholder="必填" style={{...inp(),fontSize:13}}/>
+                      </div>
+                      <div style={{gridColumn:"span 2"}}>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>備註說明</label>
+                        <input value={addForm.note} onChange={e=>setAddForm(f=>({...f,note:e.target.value}))} placeholder="選填，如：家庭狀況改變" style={{...inp(),fontSize:13}}/>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
+                      <button onClick={()=>setShowAdd(false)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12,fontFamily:font}}>取消</button>
+                      <button onClick={handleAddHistory} style={{padding:"6px 16px",borderRadius:7,border:"none",background:C.accent,color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600}}>儲存</button>
+                    </div>
+                  </div>
+                )}
+                {hist.length===0
+                  ? <div style={{fontSize:12,color:C.muted,padding:"8px 0"}}>尚無等級異動紀錄</div>
+                  : hist.map(h=>(
+                    <div key={h.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 14px",borderRadius:8,background:h.auto?"#EEF7F3":"#FFF8F0",border:`1px solid ${h.auto?C.primary:C.accent}`,marginBottom:6}}>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:h.note?4:0}}>
+                          <span style={{fontSize:11,color:h.auto?C.primary:C.accent,fontWeight:700}}>{fmtDate(h.date)}</span>
+                          <span style={{fontSize:11,color:C.muted}}>{"systemLevel"===h.field?"系統分案":"initialLevel"===h.field?"個案起始":"個案異動"}等級</span>
+                          {h.from&&<span style={{fontSize:12,padding:"1px 8px",borderRadius:20,background:"#FFF0F0",color:C.danger}}>{h.from}</span>}
+                          <span style={{fontSize:11,color:C.muted}}>→</span>
+                          <span style={{fontSize:12,padding:"1px 8px",borderRadius:20,background:h.auto?"#E8F5EE":"#FFF4E0",color:h.auto?"#2A7A4A":C.accent,fontWeight:700}}>{h.to}</span>
+                          <span style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{h.auto?"自動偵測":"手動補登"}</span>
+                        </div>
+                        {h.note&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{h.note}</div>}
+                      </div>
+                    </div>
+                  ))
+                }
+              </Section>
+            );
+          })()}
           {records.length>0&&(
             <Section title={`最近聯繫紀錄（共 ${records.length} 筆）`}>
               {records.slice(0,5).map(r=>(
@@ -985,6 +1066,26 @@ function CaseList({data,setData,onSave,onDelete}){
     setExpanded(null);
   };
   const saveEdit=async(updated)=>{
+    // 自動偵測等級變動
+    const prev=data.cases.find(c=>c.id===updated.id);
+    const levelFields=["systemLevel","initialLevel","changeLevel"];
+    const changes=[];
+    levelFields.forEach(f=>{
+      if(prev&&prev[f]&&updated[f]&&prev[f]!==updated[f]){
+        changes.push({field:f,from:prev[f],to:updated[f]});
+      }
+    });
+    if(changes.length>0){
+      for(const ch of changes){
+        const record={
+          id:uid(),caseId:updated.id,caseName:updated.name,
+          date:toDay(),field:ch.field,from:ch.from,to:ch.to,
+          note:"",auto:true
+        };
+        setData(d=>({...d,levelHistory:[...(d.levelHistory||[]),record]}));
+        await onSave("levelHistory",record);
+      }
+    }
     setData(d=>({...d,cases:d.cases.map(c=>c.id===updated.id?updated:c)}));
     await onSave("cases",updated);
   };
@@ -1023,7 +1124,7 @@ function CaseList({data,setData,onSave,onDelete}){
     <div>
       {showImport&&<ExcelImporter onImport={handleImport} onClose={()=>setShowImport(false)}/>}
       {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
-      {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
+      {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} levelHistory={data.levelHistory} setData={setData} onSave={onSave} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
       {recordsCase&&<CaseRecordsModal caseData={recordsCase} caseRecords={data.caseRecords||[]} setData={setData} onSave={onSave} onDelete={onDelete} onClose={()=>setRecordsCase(null)}/>}
       {/* 聯繫資訊預覽 Modal */}
       {contactPreview&&(
@@ -2178,7 +2279,7 @@ function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettin
 // ── APP ─────────────────────────────────────────────────────────
 function App(){
   const [view,setView]=useState("dashboard");
-  const [data,setData]=useState({cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],events:[],caseRecords:[]});
+  const [data,setData]=useState({cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],events:[],caseRecords:[],levelHistory:[]});
   const [syncStatus,setSyncStatus]=useState("local");
   const [showSetup,setShowSetup]=useState(false);
   const [ready,setReady]=useState(false);
@@ -2226,9 +2327,10 @@ function App(){
           // 嘗試搬移舊資料（只在第一次登入時執行）
           const migrated=await migrateOldData();
           if(migrated)console.log("✅ 舊資料搬移完成");
-          const [cases,visits,resources,diary,events,caseRecords]=await Promise.all([fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("events"),fbGet("caseRecords")]);
+          const [cases,visits,resources,diary,events,caseRecords,levelHistory]=await Promise.all([fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("events"),fbGet("caseRecords"),fbGet("levelHistory")]);
+          
           const r=resources.length>0?resources:DEFAULT_RESOURCES;
-          setData({cases,visits,resources:r,diary,events,caseRecords});
+          setData({cases,visits,resources:r,diary,events,caseRecords,levelHistory:levelHistory||[]});
           setSyncStatus("synced");
         }catch(e){
           console.error(e);
@@ -2238,7 +2340,7 @@ function App(){
         }
       }else if(!user){
         // 未登入，清空資料
-        setData({cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],caseRecords:[]});
+        setData({cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],caseRecords:[],levelHistory:[]});
       }else{
         const local=loadLocal();
         if(local)setData(local);
