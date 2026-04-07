@@ -105,19 +105,21 @@ function calcAgeFromDate(birthDate){
   const bd=new Date(birthDate+"T00:00:00");
   if(isNaN(bd))return"";
   const now=new Date();
-  let age=now.getFullYear()-bd.getFullYear();
-  const m=now.getMonth()-bd.getMonth();
-  if(m<0||(m===0&&now.getDate()<bd.getDate()))age--;
-  return age>=0?String(age):"";
+  let years=now.getFullYear()-bd.getFullYear();
+  let months=now.getMonth()-bd.getMonth();
+  if(now.getDate()<bd.getDate())months--;
+  if(months<0){years--;months+=12;}
+  if(years<0)return"";
+  return months>0?`${years}歲${months}個月`:`${years}歲`;
 }
-// 保留舊函式相容性
-function calcAge(birthYear,calType="roc"){
-  if(!birthYear)return"";
-  const y=parseInt(birthYear);
-  if(isNaN(y))return"";
-  const nowAD=new Date().getFullYear();
-  if(calType==="ad"){if(y<1900||y>nowAD)return"";return String(nowAD-y);}
-  else{if(y<1||y>200)return"";return String(nowAD-1911-y);}
+
+// 民國年月日 → 西元日期字串 YYYY-MM-DD
+function rocToAD(rocYear,month,day){
+  if(!rocYear)return"";
+  const y=parseInt(rocYear)+1911;
+  const m=String(parseInt(month)||1).padStart(2,"0");
+  const d=String(parseInt(day)||1).padStart(2,"0");
+  return`${y}-${m}-${d}`;
 }
 
 function fmtDate(d){if(!d)return"";const dt=new Date(d+"T00:00:00");return`${dt.getFullYear()-1911}/${dt.getMonth()+1}/${dt.getDate()}`;}
@@ -518,34 +520,6 @@ function ExcelImporter({onImport,onClose}){
   return null;
 }
 
-// ── DASHBOARD HOLIDAY BANNER ────────────────────────────────────
-function DashboardHolidayBanner(){
-  const thisYear=new Date().getFullYear();
-  const holidays=useHolidays([thisYear,thisYear+1]);
-  const today=toDay();
-  // 找接下來 14 天內的假日
-  const upcoming=[];
-  for(let i=0;i<=14;i++){
-    const d=new Date();d.setDate(d.getDate()+i);
-    const s=d.toISOString().slice(0,10);
-    const h=getHolidayName(s,holidays);
-    if(h)upcoming.push({date:s,name:h,days:i});
-  }
-  if(upcoming.length===0)return null;
-  return(
-    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-      {upcoming.map(({date,name,days})=>(
-        <div key={date} style={{display:"flex",alignItems:"center",gap:8,background:"#FFF8ED",border:"1px solid #F0D8A8",borderRadius:10,padding:"7px 14px",fontSize:12}}>
-          <span>🎌</span>
-          <div>
-            <span style={{fontWeight:600,color:"#7A4A10"}}>{name}</span>
-            <span style={{color:"#B07030",marginLeft:6}}>{days===0?"今天":days===1?"明天":`${days}天後`}・{fmtDate(date)}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── DASHBOARD ───────────────────────────────────────────────────
 function QuickRecordPanel({data,setData,onSave}){
@@ -765,7 +739,26 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="生理性別" field="gender" value={form["gender"]} onChange={fld} opts={["","男","女","其他"]}/>
             <div>
               <Label>出生日期</Label>
-              <input type="date" value={form.birthDate||""} onChange={e=>fld("birthDate",e.target.value)} style={inp()}/>
+              <div style={{display:"flex",gap:5,marginBottom:5}}>
+                {["ad","roc"].map(t=>(
+                  <button key={t} type="button" onClick={()=>fld("dateInputType",t)}
+                    style={{flex:1,padding:"3px 0",borderRadius:6,border:`1px solid ${(form.dateInputType||"ad")===t?C.primary:C.border}`,background:(form.dateInputType||"ad")===t?"#EEF7F3":C.cardAlt,color:(form.dateInputType||"ad")===t?C.primary:C.muted,cursor:"pointer",fontSize:11,fontFamily:font,fontWeight:600}}>
+                    {t==="ad"?"西元":"民國"}
+                  </button>
+                ))}
+              </div>
+              {(form.dateInputType||"ad")==="ad"
+                ? <input type="date" value={form.birthDate||""} onChange={e=>fld("birthDate",e.target.value)} style={inp()}/>
+                : <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <input value={form._rocY||""} onChange={e=>{const v=e.target.value;fld("_rocY",v);if(v)fld("birthDate",rocToAD(v,form._rocM,form._rocD));}} placeholder="民國年" style={{...inp(),width:70,fontSize:13}}/>
+                    <span style={{color:C.muted,fontSize:12}}>年</span>
+                    <input value={form._rocM||""} onChange={e=>{const v=e.target.value;fld("_rocM",v);if(form._rocY)fld("birthDate",rocToAD(form._rocY,v,form._rocD));}} placeholder="月" style={{...inp(),width:50,fontSize:13}}/>
+                    <span style={{color:C.muted,fontSize:12}}>月</span>
+                    <input value={form._rocD||""} onChange={e=>{const v=e.target.value;fld("_rocD",v);if(form._rocY)fld("birthDate",rocToAD(form._rocY,form._rocM,v));}} placeholder="日" style={{...inp(),width:50,fontSize:13}}/>
+                    <span style={{color:C.muted,fontSize:12}}>日</span>
+                  </div>
+              }
+              {form.birthDate&&<div style={{fontSize:11,color:C.primary,marginTop:4}}>西元：{form.birthDate}</div>}
             </div>
             <div>
               <Label>年齡</Label>
@@ -952,12 +945,9 @@ function CaseViewModal({c, caseRecords, onEdit, onClose}){
 }
 
 // ── CASES ───────────────────────────────────────────────────────
-const SERVICE_TYPES=["身障","長照","精神","兒少保護","老人保護","一般","其他"];
 const CASE_STATUS=["開案中","待評估","結案"];
-const GENDER_OPTS=["男","女","其他"];
 const DISABILITY_LEVELS=["輕度","中度","重度","極重度"];
 const DISABILITY_TYPES=["","第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障"];
-const LIVING_STATUS_OPTS=["獨居","與家人同住","雙老","機構","其他"];
 
 function CaseList({data,setData,onSave,onDelete}){
   const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
@@ -1145,7 +1135,26 @@ function CaseList({data,setData,onSave,onDelete}){
     <FormRow label="生理性別" field="gender" value={form["gender"]} onChange={fld} opts={["","男","女","其他"]}/>
     <div>
       <Label>出生日期</Label>
-      <input type="date" value={form["birthDate"]||""} onChange={e=>fld("birthDate",e.target.value)} style={inp()}/>
+      <div style={{display:"flex",gap:5,marginBottom:5}}>
+        {["ad","roc"].map(t=>(
+          <button key={t} type="button" onClick={()=>fld("dateInputType",t)}
+            style={{flex:1,padding:"3px 0",borderRadius:6,border:`1px solid ${(form["dateInputType"]||"ad")===t?C.primary:C.border}`,background:(form["dateInputType"]||"ad")===t?"#EEF7F3":C.cardAlt,color:(form["dateInputType"]||"ad")===t?C.primary:C.muted,cursor:"pointer",fontSize:11,fontFamily:font,fontWeight:600}}>
+            {t==="ad"?"西元":"民國"}
+          </button>
+        ))}
+      </div>
+      {(form["dateInputType"]||"ad")==="ad"
+        ? <input type="date" value={form["birthDate"]||""} onChange={e=>fld("birthDate",e.target.value)} style={inp()}/>
+        : <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <input value={form["_rocY"]||""} onChange={e=>{const v=e.target.value;fld("_rocY",v);if(v)fld("birthDate",rocToAD(v,form["_rocM"],form["_rocD"]));}} placeholder="民國年" style={{...inp(),width:70,fontSize:13}}/>
+            <span style={{color:C.muted,fontSize:12}}>年</span>
+            <input value={form["_rocM"]||""} onChange={e=>{const v=e.target.value;fld("_rocM",v);if(form["_rocY"])fld("birthDate",rocToAD(form["_rocY"],v,form["_rocD"]));}} placeholder="月" style={{...inp(),width:50,fontSize:13}}/>
+            <span style={{color:C.muted,fontSize:12}}>月</span>
+            <input value={form["_rocD"]||""} onChange={e=>{const v=e.target.value;fld("_rocD",v);if(form["_rocY"])fld("birthDate",rocToAD(form["_rocY"],form["_rocM"],v));}} placeholder="日" style={{...inp(),width:50,fontSize:13}}/>
+            <span style={{color:C.muted,fontSize:12}}>日</span>
+          </div>
+      }
+      {form["birthDate"]&&<div style={{fontSize:11,color:C.primary,marginTop:4}}>西元：{form["birthDate"]}</div>}
     </div>
     <div>
       <Label>年齡</Label>
@@ -1389,42 +1398,6 @@ function CaseList({data,setData,onSave,onDelete}){
   );
 }
 
-// ── VISITS ──────────────────────────────────────────────────────
-const METHODS=["家訪","電話訪問","辦公室面談","視訊","書信","其他"];
-function VisitList({data,setData,onSave,onDelete}){
-  const blank={caseId:"",date:toDay(),method:"家訪",content:"",followup:"",nextVisit:""};
-  const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState(blank);
-  const [filter,setFilter]=useState("all");
-  const thisYear=new Date().getFullYear();
-  const visitHolidays=useHolidays([thisYear,thisYear+1]);
-
-  const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const save=async()=>{
-    if(!form.caseId){alert("請選擇個案");return;}
-    if(!form.content.trim()){alert("請填寫服務內容");return;}
-    const newVisit={...form,id:uid()};
-    setData(d=>({...d,visits:[...d.visits,newVisit]}));
-    await onSave("visits",newVisit);
-    setForm(blank);setShowForm(false);
-  };
-  const del=async id=>{if(!confirm("確定刪除？"))return;setData(d=>({...d,visits:d.visits.filter(v=>v.id!==id)}));await onDelete("visits",id);};
-  const cName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
-  const visible=[...data.visits].filter(v=>filter==="all"||v.caseId===filter).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-
-  return(
-    <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:10}}>
-        <H1>訪視紀錄</H1>
-        <Btn variant={showForm?"secondary":"primary"} onClick={()=>setShowForm(v=>!v)}>{showForm?"取消":"+ 新增紀錄"}</Btn>
-      </div>
-      {showForm&&(<Card style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:600,marginBottom:16}}>新增訪視紀錄</div><div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px"}}><div><Label>個案 *</Label><select value={form.caseId} onChange={e=>fld("caseId",e.target.value)} style={inp()}><option value="">請選擇個案</option>{data.cases.map(c=><option key={c.id} value={c.id}>{c.name}{c.caseNo?` (${c.caseNo})`:""}</option>)}</select></div><div><Label>日期 *</Label><input type="date" value={form.date} onChange={e=>fld("date",e.target.value)} style={inp()}/></div><div><Label>訪視方式</Label><select value={form.method} onChange={e=>fld("method",e.target.value)} style={inp()}>{METHODS.map(m=><option key={m}>{m}</option>)}</select></div><div><Label>下次預計訪視</Label><input type="date" value={form.nextVisit} onChange={e=>fld("nextVisit",e.target.value)} style={inp()}/></div><div style={{gridColumn:"span 2"}}><Label>服務內容 *</Label><textarea value={form.content} onChange={e=>fld("content",e.target.value)} placeholder="記錄本次訪視內容..." style={{...inp(),height:100,resize:"vertical"}}/></div><div style={{gridColumn:"span 2"}}><Label>後續追蹤事項</Label><textarea value={form.followup} onChange={e=>fld("followup",e.target.value)} placeholder="需要追蹤的事項..." style={{...inp(),height:70,resize:"vertical"}}/></div></div><div style={{display:"flex",gap:10,marginTop:16}}><Btn onClick={save}>儲存紀錄</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>取消</Btn></div></Card>)}
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,flexWrap:"wrap"}}><label style={{fontSize:13,color:C.muted,whiteSpace:"nowrap"}}>篩選個案：</label><select value={filter} onChange={e=>setFilter(e.target.value)} style={{...inp(),maxWidth:200}}><option value="all">全部個案</option>{data.cases.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><span style={{fontSize:12,color:C.muted}}>共 {visible.length} 筆</span></div>
-      {visible.length===0&&<div style={{color:C.muted,fontSize:14,padding:"24px 0"}}>尚無訪視紀錄</div>}
-      {visible.map(v=>(<div key={v.id} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:"16px 20px",marginBottom:10}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,gap:8}}><div><span style={{fontWeight:700,fontSize:15}}>{cName(v.caseId)}</span><span style={{fontSize:12,color:C.muted,marginLeft:10}}>{fmtDate(v.date)}</span><span style={{fontSize:12,color:C.accent,marginLeft:8,fontWeight:500}}>{v.method}</span></div><Btn variant="danger" onClick={()=>del(v.id)} style={{padding:"4px 12px",fontSize:12,flexShrink:0}}>刪除</Btn></div><div style={{fontSize:13,color:C.text,lineHeight:1.75,whiteSpace:"pre-wrap"}}>{v.content}</div>{v.followup&&<div style={{fontSize:12,color:C.muted,background:C.cardAlt,borderRadius:6,padding:"8px 12px",marginTop:10,borderLeft:`3px solid ${C.accent}`}}><strong>追蹤：</strong>{v.followup}</div>}{v.nextVisit&&<div style={{fontSize:11,color:C.primary,marginTop:8,fontWeight:500}}>⏰ 下次訪視：{fmtDate(v.nextVisit)}</div>}</div>))}
-    </div>
-  );
-}
 
 // ── RESOURCES ───────────────────────────────────────────────────
 const RES_CATS=["長照","行政","保護","精神","醫療","就業","住宅","其他"];
