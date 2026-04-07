@@ -100,12 +100,18 @@ function getHolidayName(dateStr,holidays){
   return holidays[dateStr]||null;
 }
 
-function calcAge(birthYear){
+function calcAge(birthYear,calType="roc"){
   if(!birthYear)return"";
   const y=parseInt(birthYear);
-  if(isNaN(y)||y<1||y>200)return"";
-  const rocNow=new Date().getFullYear()-1911;
-  return String(rocNow-y);
+  if(isNaN(y))return"";
+  const nowAD=new Date().getFullYear();
+  if(calType==="ad"){
+    if(y<1900||y>nowAD)return"";
+    return String(nowAD-y);
+  }else{
+    if(y<1||y>200)return"";
+    return String(nowAD-1911-y);
+  }
 }
 
 function fmtDate(d){if(!d)return"";const dt=new Date(d+"T00:00:00");return`${dt.getFullYear()-1911}/${dt.getMonth()+1}/${dt.getDate()}`;}
@@ -165,19 +171,63 @@ function saveLocal(data){
 }
 
 // Firebase CRUD helpers
+// ── 舊資料搬移（一次性）────────────────────────────────────────────
+// 從舊路徑 /cases 搬到新路徑 /users/{uid}/cases
+async function migrateOldData(){
+  if(!db)return false;
+  const uid=getUid();
+  if(!uid)return false;
+
+  // 檢查新路徑是否已有資料（已搬過就不再搬）
+  const checkSnap=await db.collection("users").doc(uid).collection("cases").limit(1).get();
+  if(!checkSnap.empty)return false; // 已有資料，跳過
+
+  // 檢查舊路徑是否有資料
+  const COLS=["cases","visits","resources","diary","events","caseRecords"];
+  let hasOld=false;
+  for(const col of COLS){
+    const snap=await db.collection(col).limit(1).get();
+    if(!snap.empty){hasOld=true;break;}
+  }
+  if(!hasOld)return false; // 舊路徑也沒資料，不需搬移
+
+  // 開始搬移
+  const batch=db.batch();
+  let count=0;
+  for(const col of COLS){
+    const snap=await db.collection(col).get();
+    snap.docs.forEach(doc=>{
+      const newRef=db.collection("users").doc(uid).collection(col).doc(doc.id);
+      batch.set(newRef,doc.data());
+      count++;
+    });
+  }
+  if(count>0)await batch.commit();
+  return count>0;
+}
+
+// 取得目前登入者的 uid
+function getUid(){
+  try{return firebase.auth().currentUser?.uid||null;}catch{return null;}
+}
+// 資料路徑：users/{uid}/{collection}，無 uid 時 fallback 到舊路徑
+function userCol(collection){
+  const uid=getUid();
+  return uid?db.collection("users").doc(uid).collection(collection):db.collection(collection);
+}
 async function fbGet(collection){
   if(!db)return[];
-  const snap=await db.collection(collection).get();
+  const snap=await userCol(collection).get();
   return snap.docs.map(d=>({id:d.id,...d.data()}));
 }
 async function fbSave(collection,item){
   if(!db)return;
   const {id,...data}=item;
-  await db.collection(collection).doc(id).set(data);
+  await userCol(collection).doc(id).set(data);
 }
 async function fbDelete(collection,id){
   if(!db)return;
-  await db.collection(collection).doc(id).delete();
+  await userCol(collection).doc(id).delete();
 }
 
 // ── LOGIN SCREEN ─────────────────────────────────────────────────
@@ -427,12 +477,12 @@ function ExcelImporter({onImport,onClose}){
   const doImport=()=>{
     if(!mapping["name"]){alert("請先對應「姓名」欄位");return;}
     const imported=rows.map(r=>{
-      const c={id:uid(),name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthYear:"",age:"",disabilityType:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
+      const c={id:uid(),name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthYear:"",age:"",disabilityType:"",calType:"roc",disabilityLevel:"",disabilityDetail:"",calType:"roc",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
       FIELD_DEFS.forEach(({key})=>{if(mapping[key]!=null&&mapping[key]!==""){const val=r[parseInt(mapping[key])];if(DATE_KEYS.has(key)){c[key]=parseExcelDate(val);}
           else if(key==="disabilityType"){const r=parseDisabilityType(val);c.disabilityType=r.type;c.disabilityDetail=r.detail;}
           else{c[key]=val!=null?String(val).trim():"";}}});
       return c;
-    }).map(c=>{if(c.birthYear)c.age=calcAge(c.birthYear);return c;}).filter(c=>c.name?.trim());
+    }).map(c=>{if(c.birthYear)c.age=calcAge(c.birthYear,c.calType||'roc');return c;}).filter(c=>c.name?.trim());
     if(imported.length===0){alert("找不到有效個案");return;}
     onImport(imported);
   };
@@ -492,7 +542,126 @@ function DashboardHolidayBanner(){
 }
 
 // ── DASHBOARD ───────────────────────────────────────────────────
-function Dashboard({data,setView}){
+function QuickRecordPanel({data,setData,onSave}){
+  const blank={date:toDay(),caseId:"",contactPerson:"",contactMethod:"電訪",content:"",contactCount:"1",resourceUnit:""};
+  const [form,setForm]=useState(blank);
+  const [saved,setSaved]=useState(false);
+  const [caseSearch,setCaseSearch]=useState("");
+  const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const handleSave=async()=>{
+    if(!form.caseId){alert("請選擇個案");return;}
+    if(!form.content.trim()){alert("請填寫聯繫內容");return;}
+    const item={...form,id:uid(),createdBy:"莊子昂",createdDate:toDay(),lastModified:toDay()};
+    setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
+    await onSave("caseRecords",item);
+    setSaved(true);
+    setForm(blank);
+    setTimeout(()=>setSaved(false),2500);
+  };
+
+  const openCases=data.cases.filter(c=>c.status!=="結案").sort((a,b)=>a.name.localeCompare(b.name,"zh-TW"));
+
+  return(
+    <div style={{background:C.card,borderRadius:14,border:`2px solid ${C.accent}`,marginBottom:24,overflow:"hidden"}}>
+      <div style={{background:C.accent,padding:"12px 20px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:16}}>⚡</span>
+        <span style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:serif}}>快速聯繫紀錄</span>
+        <span style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
+      </div>
+      <div style={{padding:"16px 20px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 14px",marginBottom:12}}>
+          {/* 日期 */}
+          <div>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
+            <input type="date" value={form.date} onChange={e=>fld("date",e.target.value)} style={inp({fontSize:13})}/>
+          </div>
+          {/* 個案 */}
+          <div>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>個案 *</label>
+            <div style={{position:"relative"}}>
+              <input
+                value={caseSearch||openCases.find(c=>c.id===form.caseId)?.name||""}
+                onChange={e=>{setCaseSearch(e.target.value);if(!e.target.value)fld("caseId","");}}
+                placeholder="輸入姓名搜尋..."
+                style={inp({fontSize:13,paddingRight:28})}
+              />
+              {form.caseId&&<button onClick={()=>{fld("caseId","");setCaseSearch("");}}
+                style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:14,lineHeight:1}}>✕</button>}
+            </div>
+            {caseSearch&&!form.caseId&&(()=>{
+              const filtered=openCases.filter(c=>c.name.includes(caseSearch)||c.caseNo?.includes(caseSearch));
+              return filtered.length>0?(
+                <div style={{border:`1px solid ${C.border}`,borderRadius:8,background:C.card,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",maxHeight:200,overflowY:"auto",marginTop:4}}>
+                  {filtered.map(c=>(
+                    <div key={c.id} onClick={()=>{fld("caseId",c.id);setCaseSearch("");}}
+                      style={{padding:"10px 14px",cursor:"pointer",fontSize:13,borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#F0F7F4"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <span style={{fontWeight:600,color:C.text}}>{c.name}</span>
+                      <span style={{fontSize:11,color:C.muted}}>{c.caseNo||c.status}</span>
+                    </div>
+                  ))}
+                </div>
+              ):<div style={{border:`1px solid ${C.border}`,borderRadius:8,background:C.card,padding:"10px 14px",fontSize:13,color:C.muted,marginTop:4}}>找不到符合的個案</div>;
+            })()}
+            {form.caseId&&(()=>{
+              const c=openCases.find(x=>x.id===form.caseId);
+              return c?<div style={{fontSize:11,color:C.primary,marginTop:4,fontWeight:500}}>✓ {c.name} {c.caseNo?`(${c.caseNo})`:""}</div>:null;
+            })()}
+          </div>
+          {/* 聯繫對象 */}
+          <div>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫對象</label>
+            <select value={form.contactPersonType||""} onChange={e=>fld("contactPersonType",e.target.value)} style={inp({fontSize:13,marginBottom:6})}>
+              <option value="">選擇類型...</option>
+              <option value="案主/家屬">案主／家屬</option>
+              <option value="資源聯繫單位">資源聯繫單位</option>
+              <option value="其他">其他</option>
+            </select>
+            {form.contactPersonType&&(
+              <input value={form.contactPerson} onChange={e=>fld("contactPerson",e.target.value)}
+                placeholder={form.contactPersonType==="案主/家屬"?"輸入姓名或關係（如：案主、兒子）":form.contactPersonType==="資源聯繫單位"?"輸入單位名稱":"備註說明"}
+                style={inp({fontSize:13})}/>
+            )}
+          </div>
+          {/* 聯繫方式 + 次數 */}
+          <div style={{display:"flex",gap:8}}>
+            <div style={{flex:2}}>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫方式</label>
+              <select value={form.contactMethod} onChange={e=>fld("contactMethod",e.target.value)} style={inp({fontSize:13})}>
+                {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>次數</label>
+              <input type="number" min="1" value={form.contactCount||"1"} onChange={e=>fld("contactCount",e.target.value)} style={inp({fontSize:13})}/>
+            </div>
+          </div>
+          {/* 內容 */}
+          <div style={{gridColumn:"span 2"}}>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫內容 *</label>
+            <textarea value={form.content} onChange={e=>fld("content",e.target.value)}
+              placeholder="簡要記錄聯繫情況..."
+              style={inp({fontSize:13,height:72,resize:"vertical",lineHeight:1.6})}/>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          {saved
+            ? <span style={{fontSize:13,color:"#2A9D5C",fontWeight:600}}>✓ 已儲存並歸入個案！</span>
+            : <span style={{fontSize:11,color:C.muted}}>儲存後自動歸入該個案的聯繫紀錄</span>
+          }
+          <button onClick={handleSave}
+            style={{padding:"8px 24px",borderRadius:8,border:"none",background:C.accent,color:"#fff",cursor:"pointer",fontSize:13,fontFamily:font,fontWeight:700}}>
+            儲存紀錄
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({data,setView,setData,onSave}){
   const openCount=data.cases.filter(c=>c.status==="開案中").length;
   const mo=new Date().toISOString().slice(0,7);
   const moVisits=data.visits.filter(v=>v.date?.startsWith(mo)).length;
@@ -501,6 +670,7 @@ function Dashboard({data,setView}){
   const Stat=({label,val,sub,color})=>(<div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:"20px 24px",flex:1,minWidth:120}}><div style={{fontSize:30,fontWeight:700,color:color||C.primary,fontFamily:serif,lineHeight:1}}>{val}</div><div style={{fontSize:13,fontWeight:600,color:C.text,marginTop:6}}>{label}</div>{sub&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{sub}</div>}</div>);
   return(
     <div>
+      <QuickRecordPanel data={data} setData={setData} onSave={onSave}/>
       <div style={{marginBottom:20}}><div style={{fontSize:11,color:C.muted,letterSpacing:"0.12em",marginBottom:4}}>TODAY</div><div style={{fontSize:20,fontWeight:700,fontFamily:serif,color:C.text}}>{new Date().toLocaleDateString("zh-TW",{year:"numeric",month:"long",day:"numeric",weekday:"long"})}</div></div>
       <div className="stat-row" style={{display:"flex",gap:14,marginBottom:24,flexWrap:"wrap"}}>
         <Stat label="開案中" val={openCount} sub={`共 ${data.cases.length} 個案`}/>
@@ -547,7 +717,8 @@ function CaseEditModal({caseData, onSave, onClose}){
   const [saving, setSaving] = useState(false);
   const fld = (k,v) => setForm(f=>{
     const next={...f,[k]:v};
-    if(k==="birthYear")next.age=calcAge(v);
+    if(k==="birthYear")next.age=calcAge(v,f.calType||"roc");
+    if(k==="calType"&&f.birthYear)next.age=calcAge(f.birthYear,v);
     return next;
   });
 
@@ -587,14 +758,27 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="身分證字號" field="idNo" value={form["idNo"]} onChange={fld}/>
                     <FormRow label="案況" field="status" value={form["status"]} onChange={fld} opts={["開案中","待評估","暫停服務","結案"]}/>
             <FormRow label="生理性別" field="gender" value={form["gender"]} onChange={fld} opts={["","男","女","其他"]}/>
-            <FormRow label="年次（民國）" field="birthYear" value={form["birthYear"]} onChange={fld}/>
             <div>
-      <Label>年齡</Label>
-      <input value={form.age||""} readOnly={!!form.birthYear}
-        onChange={e=>fld("age",e.target.value)}
-        placeholder={form.birthYear?"依年次自動計算":"手動輸入"}
-        style={{...inp(),background:form.birthYear?"#F0F7F4":"",color:form.birthYear?C.primary:C.text,cursor:form.birthYear?"default":"text"}}/>
-    </div>
+              <Label>年次 / 出生年</Label>
+              <div style={{display:"flex",gap:5,marginBottom:5}}>
+                {["roc","ad"].map(t=>(
+                  <button key={t} type="button" onClick={()=>fld("calType",t)}
+                    style={{flex:1,padding:"3px 0",borderRadius:6,border:`1px solid ${(form.calType||"roc")===t?C.primary:C.border}`,background:(form.calType||"roc")===t?"#EEF7F3":C.cardAlt,color:(form.calType||"roc")===t?C.primary:C.muted,cursor:"pointer",fontSize:11,fontFamily:font,fontWeight:600}}>
+                    {t==="roc"?"民國年次":"西元年"}
+                  </button>
+                ))}
+              </div>
+              <input value={form.birthYear||""} onChange={e=>fld("birthYear",e.target.value)}
+                placeholder={(form.calType||"roc")==="roc"?"民國年次（如：51）":"西元出生年（如：1962）"}
+                style={inp()}/>
+            </div>
+            <div>
+              <Label>年齡</Label>
+              <input value={form.age||""} readOnly={!!form.birthYear}
+                onChange={e=>fld("age",e.target.value)}
+                placeholder={form.birthYear?"依年次自動計算":"手動輸入"}
+                style={{...inp(),background:form.birthYear?"#F0F7F4":"",color:form.birthYear?C.primary:C.text}}/>
+            </div>
             <div>
       <Label>新制障別</Label>
       <select value={form.disabilityType||""} onChange={e=>{fld("disabilityType",e.target.value);if(e.target.value!=="多重障")fld("disabilityDetail","");}} style={inp()}>
@@ -716,7 +900,7 @@ function CaseViewModal({c, caseRecords, onEdit, onClose}){
           <Section title="基本資料">
             <Row label="身分證字號" val={c.idNo}/>
             <Row label="生理性別" val={c.gender}/>
-            <Row label="年次／年齡" val={c.birthYear?`民${c.birthYear}年次${c.age?`・${c.age}歲`:""}`:c.age?`${c.age}歲`:null}/>
+            <Row label="年次／年齡" val={c.birthYear?(c.calType==="ad"?`西元${c.birthYear}年${c.age?`・${c.age}歲`:""}`:(`民${c.birthYear}年次${c.age?`・${c.age}歲`:""}`)): c.age?`${c.age}歲`:null}/>
             <Row label="新制障別" val={c.disabilityType==="多重障"?`多重障（${c.disabilityDetail||"未填"}）`:c.disabilityType}/>
           </Section>
           <Section title="地址與居住">
@@ -781,7 +965,7 @@ const DISABILITY_TYPES=["","第1類","第2類","第3類","第4類","第5類","�
 const LIVING_STATUS_OPTS=["獨居","與家人同住","雙老","機構","其他"];
 
 function CaseList({data,setData,onSave,onDelete}){
-  const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthYear:"",age:"",disabilityType:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
+  const blank={name:"",caseNo:"",idNo:"",calType:"roc",status:"開案中",source:"",referralUnit:"",gender:"",birthYear:"",age:"",disabilityType:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
   const [showForm,setShowForm]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [form,setForm]=useState(blank);
@@ -799,7 +983,8 @@ function CaseList({data,setData,onSave,onDelete}){
 
   const fld=(k,v)=>setForm(f=>{
     const next={...f,[k]:v};
-    if(k==="birthYear")next.age=calcAge(v);
+    if(k==="birthYear")next.age=calcAge(v,f.calType||"roc");
+    if(k==="calType")next.age=calcAge(f.birthYear,v);
     return next;
   });
   const save=async()=>{
@@ -964,8 +1149,35 @@ function CaseList({data,setData,onSave,onDelete}){
     <FormRow label="身分證字號" field="idNo" value={form["idNo"]} onChange={fld}/>
     <FormRow label="案況" field="status" value={form["status"]} onChange={fld} opts={CASE_STATUS}/>
     <FormRow label="生理性別" field="gender" value={form["gender"]} onChange={fld} opts={["","男","女","其他"]}/>
-    <FormRow label="年次（民國）" field="birthYear" value={form["birthYear"]} onChange={fld}/>
-    <FormRow label="年齡" field="age" value={form["age"]} onChange={fld}/>
+    <div>
+      <Label>年次 / 出生年</Label>
+      <div style={{display:"flex",gap:5,marginBottom:5}}>
+        {["roc","ad"].map(t=>(
+          <button key={t} type="button" onClick={()=>fld("calType",t)}
+            style={{flex:1,padding:"3px 0",borderRadius:6,border:`1px solid ${(form["calType"]||"roc")===t?C.primary:C.border}`,background:(form["calType"]||"roc")===t?"#EEF7F3":C.cardAlt,color:(form["calType"]||"roc")===t?C.primary:C.muted,cursor:"pointer",fontSize:11,fontFamily:font,fontWeight:600}}>
+            {t==="roc"?"民國年次":"西元年"}
+          </button>
+        ))}
+      </div>
+      <input value={form["birthYear"]||""} onChange={e=>fld("birthYear",e.target.value)}
+        placeholder={(form["calType"]||"roc")==="roc"?"民國年次（如：51）":"西元出生年（如：1962）"}
+        style={inp()}/>
+    </div>
+    <div>
+      <Label>年齡</Label>
+      <div style={{display:"flex",gap:6,marginBottom:6}}>
+        {["roc","ad"].map(t=>(
+          <button key={t} type="button" onClick={()=>fld("calType",t)}
+            style={{padding:"3px 12px",borderRadius:20,border:`1px solid ${(form.calType||"roc")===t?C.primary:C.border}`,background:(form.calType||"roc")===t?C.primary:"transparent",color:(form.calType||"roc")===t?"#fff":C.muted,fontSize:11,fontFamily:font,cursor:"pointer"}}>
+            {t==="roc"?"民國年次":"西元年"}
+          </button>
+        ))}
+      </div>
+      <input value={form["age"]||""} readOnly={!!form["birthYear"]}
+        onChange={e=>fld("age",e.target.value)}
+        placeholder={form["birthYear"]?"依年次自動計算":"手動輸入"}
+        style={{...inp(),background:form["birthYear"]?"#F0F7F4":"",color:form["birthYear"]?C.primary:C.text}}/>
+    </div>
     <div>
               <Label>新制障別</Label>
               <select value={form.disabilityType||""} onChange={e=>{fld("disabilityType",e.target.value);if(e.target.value!=="多重障")fld("disabilityDetail","");}} style={inp()}>
@@ -1794,9 +2006,162 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
   );
 }
 
+// ── MONTHLY REPORT ───────────────────────────────────────────────
+function MonthlyReport({data,setData,onSave}){
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth()+1);
+
+  const pad=n=>String(n).padStart(2,"0");
+  const monthStr=`${year}-${pad(month)}`;
+  const rocYear=year-1911;
+  const [editId,setEditId]=useState(null);
+  const [editRec,setEditRec]=useState({});
+  const fldEdit=(k,v)=>setEditRec(r=>({...r,[k]:v}));
+
+  const handleSave=async()=>{
+    const updated={...editRec,lastModified:toDay()};
+    setData(d=>({...d,caseRecords:(d.caseRecords||[]).map(r=>r.id===editId?updated:r)}));
+    await onSave("caseRecords",updated);
+    setEditId(null);
+  };
+
+  // 篩選該月份的聯繫紀錄
+  const records=(data.caseRecords||[])
+    .filter(r=>r.date?.startsWith(monthStr))
+    .sort((a,b)=>a.date.localeCompare(b.date));
+
+  // 個案名稱對照
+  const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
+  const caseNo=id=>data.cases.find(c=>c.id===id)?.caseNo||"";
+
+  // 統計
+  const totalCount=records.reduce((s,r)=>s+parseInt(r.contactCount||1),0);
+  const byMethod={};
+  records.forEach(r=>{
+    const m=r.contactMethod||"其他";
+    byMethod[m]=(byMethod[m]||0)+parseInt(r.contactCount||1);
+  });
+  const byCaseCount={};
+  records.forEach(r=>{byCaseCount[r.caseId]=(byCaseCount[r.caseId]||0)+parseInt(r.contactCount||1);});
+  const caseCount=Object.keys(byCaseCount).length;
+
+  const prevMonth=()=>{if(month===1){setYear(y=>y-1);setMonth(12);}else setMonth(m=>m-1);};
+  const nextMonth=()=>{if(month===12){setYear(y=>y+1);setMonth(1);}else setMonth(m=>m+1);};
+
+  const MONTH_NAMES=["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"];
+
+  return(
+    <div>
+      {/* 標題與月份切換 */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>月服務報表</h1>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>‹</button>
+          <span style={{fontSize:15,fontWeight:700,color:C.text,minWidth:120,textAlign:"center",fontFamily:serif}}>
+            民{rocYear}年 {MONTH_NAMES[month-1]}
+          </span>
+          <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>›</button>
+        </div>
+      </div>
+
+      {/* 統計摘要 */}
+      <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+        {[
+          {label:"聯繫紀錄筆數",val:records.length,color:C.primary},
+          {label:"服務人次",val:totalCount,color:C.accent},
+          {label:"服務個案數",val:caseCount,color:"#4A6E8A"},
+        ].map(({label,val,color})=>(
+          <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",flex:1,minWidth:100}}>
+            <div style={{fontSize:28,fontWeight:700,color,fontFamily:serif}}>{val}</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:4}}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 聯繫方式統計 */}
+      {Object.keys(byMethod).length>0&&(
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:20}}>
+          <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:"0.06em",marginBottom:10}}>聯繫方式分布</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {Object.entries(byMethod).sort((a,b)=>b[1]-a[1]).map(([m,n])=>(
+              <div key={m} style={{padding:"6px 14px",borderRadius:20,background:"#EEF7F3",border:`1px solid ${C.primary}`,fontSize:12,color:C.primary,fontWeight:600}}>
+                {m} <span style={{fontWeight:700}}>{n}</span> 次
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 條列式紀錄 */}
+      {records.length===0
+        ? <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"40px",textAlign:"center",color:C.muted,fontSize:14}}>
+            {MONTH_NAMES[month-1]}無聯繫紀錄
+          </div>
+        : <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <div style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
+              <span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
+            </div>
+            {records.map((r,i)=>(
+              editId===r.id
+              ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10}}>
+                  <div style={{fontSize:12,fontWeight:600,color:C.accent,marginBottom:2}}>編輯紀錄 — {caseName(r.caseId)}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px"}}>
+                    <div>
+                      <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>日期</label>
+                      <input type="date" value={editRec.date||""} onChange={e=>fldEdit("date",e.target.value)} style={{...inp(),fontSize:13}}/>
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <div style={{flex:2}}>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫方式</label>
+                        <select value={editRec.contactMethod||"電訪"} onChange={e=>fldEdit("contactMethod",e.target.value)} style={{...inp(),fontSize:13}}>
+                          {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
+                        </select>
+                      </div>
+                      <div style={{flex:1}}>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>次數</label>
+                        <input type="number" min="1" value={editRec.contactCount||"1"} onChange={e=>fldEdit("contactCount",e.target.value)} style={{...inp(),fontSize:13}}/>
+                      </div>
+                    </div>
+                    <div style={{gridColumn:"span 2"}}>
+                      <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫內容</label>
+                      <textarea value={editRec.content||""} onChange={e=>fldEdit("content",e.target.value)} rows={3} style={{...inp(),fontSize:13,resize:"vertical",lineHeight:1.6}}/>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>setEditId(null)} style={{padding:"6px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:13,fontFamily:font}}>取消</button>
+                    <button onClick={handleSave} style={{padding:"6px 18px",borderRadius:8,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:13,fontFamily:font,fontWeight:600}}>儲存</button>
+                  </div>
+                </div>
+              : <div key={r.id} style={{padding:"12px 20px",borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,alignItems:"start",background:i%2===0?C.card:C.cardAlt,fontSize:13}}>
+                  <span style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                  <span style={{fontWeight:700,color:C.text}}>{caseName(r.caseId)}</span>
+                  <span style={{color:C.muted,fontSize:12}}>{r.contactPersonType?`${r.contactPersonType}${r.contactPerson?`・${r.contactPerson}`:""}`:r.contactPerson||"—"}</span>
+                  <span style={{fontSize:11}}>
+                    <span style={{padding:"2px 7px",borderRadius:20,background:"#EEF7F3",color:C.primary,fontWeight:600}}>{r.contactMethod||"—"}</span>
+                    <span style={{color:C.muted,marginLeft:4}}>×{r.contactCount||1}</span>
+                  </span>
+                  <span style={{color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.content||<span style={{color:C.border}}>—</span>}</span>
+                  <button onClick={()=>{setEditId(r.id);setEditRec({...r});}}
+                    style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12,color:C.muted,fontFamily:font,whiteSpace:"nowrap"}}>
+                    ✏️
+                  </button>
+                </div>
+            ))}
+            <div style={{padding:"12px 20px",background:C.cardAlt,borderTop:`2px solid ${C.border}`,fontSize:12,color:C.muted,display:"flex",gap:20}}>
+              <span>合計 <strong style={{color:C.text}}>{records.length}</strong> 筆紀錄</span>
+              <span>服務人次 <strong style={{color:C.accent}}>{totalCount}</strong> 次</span>
+              <span>涉及個案 <strong style={{color:"#4A6E8A"}}>{caseCount}</strong> 人</span>
+            </div>
+          </div>
+      }
+    </div>
+  );
+}
+
 // ── SIDEBAR ─────────────────────────────────────────────────────
 function Sidebar({view,setView,syncStatus,onSetup,onLogout}){
-  const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"visits",label:"訪視紀錄",icon:"≣"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"}];
+  const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"visits",label:"訪視紀錄",icon:"≣"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"},{id:"monthly",label:"月報表",icon:"📊"}];
   return(
     <div className="sidebar" style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0,height:"100vh"}}>
       <div className="brand" style={{padding:"28px 20px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
@@ -1854,6 +2219,9 @@ function App(){
       if(user&&isFirebaseConfigured()&&firebaseReady){
         setSyncStatus("syncing");
         try{
+          // 嘗試搬移舊資料（只在第一次登入時執行）
+          const migrated=await migrateOldData();
+          if(migrated)console.log("✅ 舊資料搬移完成");
           const [cases,visits,resources,diary,events,caseRecords]=await Promise.all([fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("events"),fbGet("caseRecords")]);
           const r=resources.length>0?resources:DEFAULT_RESOURCES;
           setData({cases,visits,resources:r,diary,events,caseRecords});
@@ -1912,12 +2280,13 @@ function App(){
       {showSetup&&<SetupGuide/>}
       <Sidebar view={view} setView={setView} syncStatus={syncStatus} onSetup={()=>setShowSetup(v=>!v)} onLogout={user?handleLogout:null}/>
       <div className="main-content" style={{flex:1,overflow:"auto",padding:"32px 36px"}}>
-        {view==="dashboard"&&<Dashboard data={data} setView={setView}/>}
+        {view==="dashboard"&&<Dashboard data={data} setView={setView} setData={setData} onSave={onSave}/>}
         {view==="calendar"  &&<CalendarView data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="cases"    &&<CaseList  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="visits"   &&<VisitList data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="resources"&&<ResourceList data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="diary"    &&<DiaryLog  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
+        {view==="monthly"  &&<MonthlyReport data={data} setData={setData} onSave={onSave}/>}
       </div>
     </div>
   );
