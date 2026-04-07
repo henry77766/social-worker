@@ -325,7 +325,7 @@ function SetupGuide(){
         ].map(({step,title,desc})=>(
           <div key={step} style={{display:"flex",gap:16,marginBottom:20}}>
             <div style={{width:28,height:28,borderRadius:"50%",background:C.primary,color:"#fff",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>{step}</div>
-            <div>
+            <div style={{minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14,color:C.text,marginBottom:4}}>{title}</div>
               <div style={{fontSize:13,color:C.muted,lineHeight:1.7}}>{desc}</div>
               {step==="4"&&(
@@ -566,7 +566,7 @@ function QuickRecordPanel({data,setData,onSave}){
           {/* 個案 */}
           <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>個案 *</label>
-            <div style={{position:"relative"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,alignItems:"start"}}>
               <input
                 value={caseSearch||openCases.find(c=>c.id===form.caseId)?.name||""}
                 onChange={e=>{setCaseSearch(e.target.value);if(!e.target.value)fld("caseId","");}}
@@ -1614,6 +1614,49 @@ const TAIWAN_HOLIDAYS=[
   {date:"2026-12-25",title:"行憲紀念日"},
 ];
 
+function TimePicker({value,onChange,placeholder="選擇時間"}){
+  const [open,setOpen]=useState(false);
+  const [pos,setPos]=useState({x:0,y:0,up:false});
+  const ref=useRef(null);
+  const pad=n=>String(n).padStart(2,"0");
+  const times=[];
+  for(let h=0;h<24;h++)for(let m=0;m<60;m+=5)times.push(`${pad(h)}:${pad(m)}`);
+  const fmt=(t)=>{if(!t)return"";const[h,m]=t.split(":").map(Number);return`${h<12?"上午":"下午"}${h%12===0?12:h%12}:${pad(m)}`;};
+  useEffect(()=>{
+    if(!open)return;
+    const close=(e)=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    document.addEventListener("mousedown",close);
+    return()=>document.removeEventListener("mousedown",close);
+  },[open]);
+  useEffect(()=>{
+    if(open&&ref.current){const sel=ref.current.querySelector(".sel-t");if(sel)sel.scrollIntoView({block:"center"});}
+  },[open]);
+  const handleOpen=(e)=>{
+    const r=e.currentTarget.getBoundingClientRect();
+    const up=window.innerHeight-r.bottom<240;
+    setPos({x:r.left,y:up?r.top-4:r.bottom+4,up});
+    setOpen(v=>!v);
+  };
+  return(
+    <div style={{position:"relative"}}>
+      <div onClick={handleOpen} style={{...inp(),cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",userSelect:"none"}}>
+        <span style={{color:value?C.text:C.muted,fontSize:14}}>{value?fmt(value):placeholder}</span>
+        {value?<button onClick={e=>{e.stopPropagation();onChange("");setOpen(false);}} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:0}}>✕</button>:<span style={{fontSize:11,color:C.muted}}>▾</span>}
+      </div>
+      {open&&(
+        <div ref={ref} style={{position:"fixed",left:pos.x,top:pos.up?undefined:pos.y,bottom:pos.up?(window.innerHeight-pos.y):undefined,zIndex:3000,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 6px 24px rgba(0,0,0,0.15)",width:140,maxHeight:220,overflowY:"auto"}}>
+          {times.map(t=>(
+            <div key={t} className={value===t?"sel-t":""} onClick={()=>{onChange(t);setOpen(false);}}
+              style={{padding:"10px 16px",fontSize:14,cursor:"pointer",background:value===t?C.primary:"transparent",color:value===t?"#fff":C.text,fontWeight:value===t?600:400}}>
+              {fmt(t)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CalendarView({data,setData,onSave,onDelete}){
   const today=toDay();
   // ── 所有 hooks 集中在最頂部 ──────────────────────────
@@ -1621,8 +1664,21 @@ function CalendarView({data,setData,onSave,onDelete}){
   const [sel,setSel]=useState(today);
   const [showForm,setShowForm]=useState(false);
   const [editId,setEditId]=useState(null);
+  const [viewId,setViewId]=useState(null);
+  const [menuId,setMenuId]=useState(null);
+  const [menuPos,setMenuPos]=useState({x:0,y:0});
   const [form,setForm]=useState({title:"",type:"訪視",time:"",note:""});
   const initDone=useRef(false);
+
+  // 點選其他地方關閉選單
+  useEffect(()=>{
+    if(!menuId)return;
+    const close=()=>setMenuId(null);
+    document.addEventListener("click",close);
+    return()=>document.removeEventListener("click",close);
+  },[menuId]);
+  const thisYear=new Date().getFullYear();
+  const holidays=useHolidays([thisYear,thisYear+1]);
 
   useEffect(()=>{
     if(initDone.current)return;
@@ -1635,7 +1691,7 @@ function CalendarView({data,setData,onSave,onDelete}){
   },[data.events]);
 
   // ── 一般函式 ──────────────────────────────────────────
-  const blank={title:"",type:"訪視",time:"",note:""};
+  const blank={title:"",type:"訪視",timeStart:"",timeEnd:"",note:""};
   const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   const loadHolidays=async()=>{
@@ -1685,13 +1741,13 @@ function CalendarView({data,setData,onSave,onDelete}){
 
   const startEdit=(e)=>{
     setEditId(e.id);
-    setForm({title:e.title,type:e.type,time:e.time||"",note:e.note||""});
+    setForm({title:e.title,type:e.type,date:e.date||"",timeStart:e.timeStart||"",timeEnd:e.timeEnd||"",note:e.note||""});
     setShowForm(false);
   };
   const cancelEdit=()=>{setEditId(null);setForm(blank);};
   const saveEdit=async()=>{
     if(!form.title.trim()){alert("請填寫事件標題");return;}
-    const updated={...(data.events||[]).find(e=>e.id===editId),...form,id:editId};
+    const updated={...(data.events||[]).find(e=>e.id===editId),...form,id:editId,date:form.date||(data.events||[]).find(e=>e.id===editId)?.date};
     setData(d=>({...d,events:(d.events||[]).map(e=>e.id===editId?updated:e)}));
     await onSave("events",updated);
     setEditId(null);setForm(blank);
@@ -1702,26 +1758,27 @@ function CalendarView({data,setData,onSave,onDelete}){
   const rocYear=cur.y-1911;
 
   return(
-    <div style={{display:"flex",gap:24,height:"100%",flexWrap:"wrap"}}>
-      <div style={{flex:"1 1 420px",minWidth:0}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
-          <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>{rocYear} 年 {cur.m+1} 月</h1>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button onClick={loadHolidays} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"#FFF0F0",color:C.danger,fontSize:11,cursor:"pointer",fontFamily:font}}>📅 重載國定假日</button>
-            <button onClick={clearHolidays} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:11,cursor:"pointer",fontFamily:font}}>清除假日</button>
-            <button onClick={goToday} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:12,cursor:"pointer",fontFamily:font}}>今天</button>
-            <button onClick={prevMonth} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:14,cursor:"pointer"}}>‹</button>
-            <button onClick={nextMonth} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:14,cursor:"pointer"}}>›</button>
-          </div>
+    <div>
+      {/* 頂部 */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>{rocYear} 年 {cur.m+1} 月</h1>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={goToday} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:12,cursor:"pointer",fontFamily:font}}>今天</button>
+          <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+          <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
+      </div>
+
+      {/* 月曆 */}
+      <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
           {["日","一","二","三","四","五","六"].map((d,i)=>(
-            <div key={d} style={{textAlign:"center",fontSize:11,fontWeight:600,color:i===0?"#C04040":i===6?"#4A6E8A":C.muted,padding:"6px 0"}}>{d}</div>
+            <div key={d} style={{textAlign:"center",fontSize:12,fontWeight:600,color:i===0?"#C04040":i===6?"#4A6E8A":C.muted,padding:"10px 0"}}>{d}</div>
           ))}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridAutoRows:"120px"}}>
           {cells.map((d,i)=>{
-            if(!d)return<div key={`e${i}`}/>;
+            if(!d)return<div key={`e${i}`} style={{borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,minHeight:90}}/>;
             const ds=dateStr(d);
             const evts=evtsOn(ds);
             const vis=visitsOn(ds);
@@ -1729,93 +1786,139 @@ function CalendarView({data,setData,onSave,onDelete}){
             const isSel=ds===sel;
             const colIdx=(startDow+d-1)%7;
             const isSun=colIdx===0,isSat=colIdx===6;
+            const holiday=holidays[ds];
             return(
-              <div key={d} onClick={()=>{setSel(ds);setEditId(null);}} style={{minHeight:64,borderRadius:8,padding:"6px 5px",cursor:"pointer",border:`1.5px solid ${isSel?C.primary:isToday?C.accent:C.border}`,background:isSel?"#EBF4F0":isToday?"#FFF8F0":C.card,transition:"all 0.1s"}}>
-                <div style={{fontSize:12,fontWeight:isToday||isSel?700:400,color:isSun?"#C04040":isSat?"#4A6E8A":isSel?C.primary:isToday?C.accent:C.text,marginBottom:4}}>{d}</div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:2}}>
-                  {evts.slice(0,3).map(e=>(<div key={e.id} style={{width:6,height:6,borderRadius:"50%",background:EVT_COLORS[e.type]||C.muted,flexShrink:0}}/>))}
-                  {vis.length>0&&<div style={{width:6,height:6,borderRadius:"50%",background:"#AAB8C2",flexShrink:0}}/>}
-                  {evts.length>3&&<div style={{fontSize:9,color:C.muted,lineHeight:"6px"}}>+{evts.length-3}</div>}
+              <div key={d} onClick={()=>{setSel(ds);setEditId(null);setShowForm(false);}}
+                style={{height:"100%",padding:"6px 8px",cursor:"pointer",overflow:"hidden",
+                  borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,
+                  background:isSel?"#EBF4F0":isToday?"#FFF8F0":C.card,
+                  outline:isSel?`2px solid ${C.primary}`:"none",outlineOffset:-2}}>
+                <div style={{fontSize:13,fontWeight:isToday||isSel?700:400,
+                  color:isSun?"#C04040":isSat?"#4A6E8A":isSel?C.primary:isToday?C.accent:C.text,
+                  marginBottom:holiday?1:4}}>{d}</div>
+                {holiday&&<div style={{fontSize:9,color:"#C04040",fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{holiday}</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                  {evts.filter(e=>e.type!=="節日").slice(0,3).map(e=>(
+                    <div key={e.id} style={{borderRadius:3,background:EVT_COLORS[e.type]||C.muted,
+                      padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"16px"}}>
+                      {e.title}
+                    </div>
+                  ))}
+                  {vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,lineHeight:"16px"}}>預排訪視</div>}
+                  {evts.filter(e=>e.type!=="節日").length>3&&<div style={{fontSize:10,color:C.muted}}>+{evts.filter(e=>e.type!=="節日").length-3} 更多</div>}
                 </div>
               </div>
             );
           })}
         </div>
-        <div style={{display:"flex",gap:12,marginTop:16,flexWrap:"wrap"}}>
-          {EVT_TYPES.map(t=>(<div key={t} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:EVT_COLORS[t]}}/>{t}</div>))}
-          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:"#AAB8C2"}}/>預排訪視</div>
-        </div>
       </div>
 
-      <div style={{width:280,flexShrink:0}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-          <div>
-            <div style={{fontSize:15,fontWeight:700,color:C.text}}>{fmtDate(sel)}</div>
-            <div style={{fontSize:11,color:C.muted}}>{new Date(sel+"T00:00:00").toLocaleDateString("zh-TW",{weekday:"long"})}</div>
+      {/* 圖例 */}
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        {EVT_TYPES.map(t=>(<div key={t} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:EVT_COLORS[t]}}/>{t}</div>))}
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:"#AAB8C2"}}/>預排訪視</div>
+      </div>
+
+      {/* 選取日詳情 */}
+      <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:15,fontWeight:700,color:C.text}}>{fmtDate(sel)}</span>
+            <span style={{fontSize:12,color:C.muted}}>{new Date(sel+"T00:00:00").toLocaleDateString("zh-TW",{weekday:"long"})}</span>
+            {selEvts.filter(e=>e.type!=="節日").length>0&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#EEF7F3",color:C.primary}}>{selEvts.filter(e=>e.type!=="節日").length} 個行程</span>}
           </div>
-          <Btn onClick={()=>{setShowForm(v=>!v);setForm(blank);setEditId(null);}} variant={showForm?"secondary":"primary"} style={{padding:"6px 14px",fontSize:12}}>
+          <Btn onClick={()=>{setShowForm(v=>!v);setForm(blank);setEditId(null);}} variant={showForm?"secondary":"primary"} style={{padding:"6px 16px",fontSize:12}}>
             {showForm?"取消":"＋ 新增"}
           </Btn>
         </div>
-        {showForm&&(
-          <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:"16px",marginBottom:14}}>
-            <div style={{marginBottom:10}}><Label>標題 *</Label><input value={form.title} onChange={e=>fld("title",e.target.value)} placeholder="事件標題" style={inp()}/></div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-              <div><Label>類型</Label><select value={form.type} onChange={e=>fld("type",e.target.value)} style={inp()}>{EVT_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
-              <div><Label>時間</Label><input type="time" value={form.time} onChange={e=>fld("time",e.target.value)} style={inp()}/></div>
+        <div style={{padding:"14px 20px",overflowX:"visible"}}>
+          {showForm&&(
+            <div style={{background:C.cardAlt,borderRadius:10,padding:"16px",marginBottom:14,border:`1px solid ${C.border}`}}>
+              <div style={{marginBottom:10}}><Label>標題 *</Label><input value={form.title} onChange={e=>fld("title",e.target.value)} placeholder="事件標題" style={inp()}/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div style={{gridColumn:"span 2"}}><Label>類型</Label><select value={form.type} onChange={e=>fld("type",e.target.value)} style={inp()}>{EVT_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+                <div><Label>開始時間</Label><input type="time" value={form.timeStart||""} onChange={e=>fld("timeStart",e.target.value)} style={inp()}/></div>
+                <div><Label>結束時間</Label><input type="time" value={form.timeEnd||""} onChange={e=>fld("timeEnd",e.target.value)} style={inp()}/></div>
+              </div>
+              <div style={{marginBottom:12}}><Label>備註</Label><textarea value={form.note} onChange={e=>fld("note",e.target.value)} rows={2} style={{...inp(),resize:"vertical"}}/></div>
+              <Btn onClick={saveEvt} style={{width:"100%"}}>儲存事件</Btn>
             </div>
-            <div style={{marginBottom:12}}><Label>備註</Label><textarea value={form.note} onChange={e=>fld("note",e.target.value)} rows={2} style={{...inp(),resize:"vertical"}}/></div>
-            <Btn onClick={saveEvt} style={{width:"100%"}}>儲存事件</Btn>
-          </div>
-        )}
-        {selVisits.map(v=>(
-          <div key={v.id} style={{background:"#F0F4F8",borderRadius:10,border:`1px solid #C8D8E8`,padding:"12px 14px",marginBottom:8,borderLeft:`3px solid #5B8DB8`}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#5B8DB8",marginBottom:4}}>📅 預排訪視</div>
-            <div style={{fontSize:13,color:C.text,fontWeight:500}}>{data.cases.find(c=>c.id===v.caseId)?.name||"（未知）"}</div>
-            {v.followup&&<div style={{fontSize:11,color:C.muted,marginTop:3}}>{v.followup}</div>}
-          </div>
-        ))}
-        {selEvts.length===0&&selVisits.length===0&&(
-          <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"32px 0"}}>這天沒有安排<br/><span style={{fontSize:11}}>點「＋ 新增」來加入事件</span></div>
-        )}
-        {selEvts.map(e=>(
-          <div key={e.id} style={{background:C.card,borderRadius:10,border:`1.5px solid ${editId===e.id?C.primary:C.border}`,padding:"12px 14px",marginBottom:8,borderLeft:`3px solid ${EVT_COLORS[e.type]||C.muted}`}}>
-            {editId===e.id?(
-              <div>
-                <div style={{fontSize:12,fontWeight:600,color:C.primary,marginBottom:10}}>編輯事件</div>
-                <div style={{marginBottom:8}}><Label>標題 *</Label><input value={form.title} onChange={ev=>fld("title",ev.target.value)} style={inp()}/></div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
-                  <div><Label>類型</Label><select value={form.type} onChange={ev=>fld("type",ev.target.value)} style={inp()}>{EVT_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
-                  <div><Label>時間</Label><input type="time" value={form.time} onChange={ev=>fld("time",ev.target.value)} style={inp()}/></div>
-                </div>
-                <div style={{marginBottom:10}}><Label>備註</Label><textarea value={form.note} onChange={ev=>fld("note",ev.target.value)} rows={2} style={{...inp(),resize:"vertical"}}/></div>
-                <div style={{display:"flex",gap:8}}>
-                  <Btn onClick={saveEdit} style={{flex:1,padding:"7px"}}>儲存</Btn>
-                  <Btn variant="secondary" onClick={cancelEdit} style={{padding:"7px 12px"}}>取消</Btn>
-                </div>
-              </div>
-            ):(
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                <div style={{flex:1}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
-                    <span style={{fontSize:13,fontWeight:600,color:C.text}}>{e.title}</span>
-                    <span style={{fontSize:10,padding:"1px 7px",borderRadius:10,background:(EVT_COLORS[e.type]||C.muted)+"22",color:EVT_COLORS[e.type]||C.muted,fontWeight:600}}>{e.type}</span>
+          )}
+          {selVisits.map(v=>(
+            <div key={v.id} style={{background:"#F0F4F8",borderRadius:10,border:"1px solid #C8D8E8",padding:"12px 14px",marginBottom:8,borderLeft:"3px solid #5B8DB8"}}>
+              <div style={{fontSize:11,fontWeight:600,color:"#5B8DB8",marginBottom:4}}>📅 預排訪視</div>
+              <div style={{fontSize:13,color:C.text,fontWeight:500}}>{data.cases.find(c=>c.id===v.caseId)?.name||"（未知）"}</div>
+              {v.followup&&<div style={{fontSize:11,color:C.muted,marginTop:3}}>{v.followup}</div>}
+            </div>
+          ))}
+          {selEvts.filter(e=>e.type!=="節日").length===0&&selVisits.length===0&&!showForm&&(
+            <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"24px 0"}}>這天沒有安排<br/><span style={{fontSize:11}}>點「＋ 新增」來加入事件</span></div>
+          )}
+          {selEvts.filter(e=>e.type!=="節日").map(e=>(
+            <div key={e.id} style={{background:C.card,borderRadius:10,border:`1.5px solid ${editId===e.id?C.primary:C.border}`,padding:"12px 14px",marginBottom:8,borderLeft:`3px solid ${EVT_COLORS[e.type]||C.muted}`,position:"relative"}}>
+              {editId===e.id?(
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.primary,marginBottom:10}}>編輯事件</div>
+                  <div style={{marginBottom:8}}><Label>日期</Label><input type="date" value={form.date||""} onChange={ev=>fld("date",ev.target.value)} style={inp()}/></div>
+                  <div style={{marginBottom:8}}><Label>標題 *</Label><input value={form.title} onChange={ev=>fld("title",ev.target.value)} style={inp()}/></div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                    <div style={{gridColumn:"span 2"}}><Label>類型</Label><select value={form.type} onChange={ev=>fld("type",ev.target.value)} style={inp()}>{EVT_TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+                    <div><Label>開始時間</Label><TimePicker value={form.timeStart||""} onChange={v=>fld("timeStart",v)}/></div>
+                    <div><Label>結束時間</Label><TimePicker value={form.timeEnd||""} onChange={v=>fld("timeEnd",v)}/></div>
                   </div>
-                  {e.time&&<div style={{fontSize:11,color:C.muted}}>🕐 {e.time}</div>}
-                  {e.note&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>{e.note}</div>}
+                  <div style={{marginBottom:10}}><Label>備註</Label><textarea value={form.note} onChange={ev=>fld("note",ev.target.value)} rows={2} style={{...inp(),resize:"vertical"}}/></div>
+                  <div style={{display:"flex",gap:8}}>
+                    <Btn onClick={saveEdit} style={{flex:1,padding:"7px"}}>儲存</Btn>
+                    <Btn variant="secondary" onClick={cancelEdit} style={{padding:"7px 12px"}}>取消</Btn>
+                  </div>
                 </div>
-                <div style={{display:"flex",gap:4,flexShrink:0,paddingLeft:8}}>
-                  <button onClick={()=>startEdit(e)} title="編輯" style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:2}}>✏️</button>
-                  {e.type!=="節日"&&<button onClick={()=>delEvt(e.id)} title="刪除" style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:2}}>✕</button>}
+              ):(
+                <div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div style={{flex:1,cursor:"pointer"}} onClick={()=>setViewId(v=>v===e.id?null:e.id)}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                        <span style={{fontSize:13,fontWeight:600,color:C.text}}>{e.title}</span>
+                        <span style={{fontSize:10,padding:"1px 7px",borderRadius:10,background:(EVT_COLORS[e.type]||C.muted)+"22",color:EVT_COLORS[e.type]||C.muted,fontWeight:600}}>{e.type}</span>
+                      </div>
+                      {(e.timeStart||e.timeEnd)&&<div style={{fontSize:11,color:C.muted}}>🕐 {e.timeStart||""}{e.timeEnd?` - ${e.timeEnd}`:""}</div>}
+                    </div>
+                    <div style={{flexShrink:0,paddingLeft:8,position:"relative"}}>
+                      <button onClick={ev=>{ev.stopPropagation();const r=ev.currentTarget.getBoundingClientRect();setMenuPos({x:r.right,y:r.bottom});setMenuId(v=>v===e.id?null:e.id);}}
+                        style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",color:menuId===e.id?C.primary:C.muted,fontSize:13,padding:"2px 8px",lineHeight:1}}>⋮</button>
+                      {menuId===e.id&&(
+                        <div onClick={ev=>ev.stopPropagation()}
+                          style={{position:"fixed",left:Math.min(menuPos.x-130,window.innerWidth-140),top:menuPos.y+140>window.innerHeight?menuPos.y-148:menuPos.y+4,background:C.card,borderRadius:12,border:`1px solid ${C.border}`,boxShadow:"0 8px 28px rgba(0,0,0,0.18)",zIndex:2000,minWidth:130,overflow:"hidden"}}>
+                          <button onClick={()=>{startEdit(e);setMenuId(null);}}
+                            style={{width:"100%",padding:"11px 18px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontFamily:font,color:C.text,textAlign:"left",display:"flex",alignItems:"center",gap:9}}>✏️ 編輯</button>
+                          <button onClick={()=>{const copy={...e,id:uid(),title:`${e.title}（複製）`};setData(d=>({...d,events:[...d.events,copy]}));onSave("events",copy);setMenuId(null);}}
+                            style={{width:"100%",padding:"11px 18px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontFamily:font,color:C.text,textAlign:"left",display:"flex",alignItems:"center",gap:9,borderTop:`1px solid ${C.border}`}}>⧉ 複製</button>
+                          <button onClick={()=>{delEvt(e.id);setMenuId(null);}}
+                            style={{width:"100%",padding:"11px 18px",background:"none",border:"none",cursor:"pointer",fontSize:13,fontFamily:font,color:C.danger,textAlign:"left",display:"flex",alignItems:"center",gap:9,borderTop:`1px solid ${C.border}`}}>✕ 刪除</button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {viewId===e.id&&(
+                    <div style={{marginTop:10,padding:"10px 12px",background:C.cardAlt,borderRadius:8,fontSize:12,color:C.text,lineHeight:1.8}}>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                        <span style={{color:C.muted}}>📅</span><span style={{fontWeight:500}}>{fmtDate(e.date)}</span>
+                        {(e.timeStart||e.timeEnd)&&<span style={{color:C.muted}}>🕐 {e.timeStart||""}{e.timeEnd?` - ${e.timeEnd}`:""}</span>}
+                      </div>
+                      {e.note?<div style={{color:C.muted,whiteSpace:"pre-wrap"}}>{e.note}</div>:<div style={{color:C.border}}>（無備註）</div>}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
+
 
 
 // ── CASE RECORDS MODAL ──────────────────────────────────────────
