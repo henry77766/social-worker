@@ -47,13 +47,37 @@ const FIREBASE_CONFIG = {
   .sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
   .pulse{animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-  @media(max-width:768px){
-    .sidebar{width:60px!important;}
+  @media(max-width:700px){
+    body{overflow-x:hidden;}
+    .app-shell{flex-direction:column!important;}
+    .sidebar{
+      width:100%!important;
+      height:auto!important;
+      flex-direction:row!important;
+      flex-shrink:0;
+      overflow-x:auto;
+      border-right:none!important;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+    }
     .sidebar .brand{display:none!important;}
-    .sidebar nav button span:last-child{display:none!important;}
-    .main-content{padding:16px!important;}
-    .stat-row{gap:8px!important;}
+    .sidebar nav{
+      display:flex!important;
+      flex-direction:row!important;
+      padding:0!important;
+      overflow-x:auto;
+      flex:1;
+    }
+    .sidebar nav button{
+      padding:10px 14px!important;
+      white-space:nowrap;
+      border-left:none!important;
+      border-bottom:3px solid transparent;
+      min-width:auto;
+    }
+    .sidebar .bottom-bar{display:none!important;}
+    .main-content{padding:16px!important;overflow-x:hidden;}
     .grid-2col{grid-template-columns:1fr!important;}
+    .stat-row>div{min-width:calc(50% - 7px)!important;}
   }
 </style>
 </head>
@@ -566,7 +590,7 @@ function QuickRecordPanel({data,setData,onSave}){
         <span style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
       </div>
       <div style={{padding:"16px 20px"}}>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:"10px 14px",marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 14px",marginBottom:12}}>
           {/* 日期 */}
           <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
@@ -580,7 +604,7 @@ function QuickRecordPanel({data,setData,onSave}){
                 value={caseSearch||openCases.find(c=>c.id===form.caseId)?.name||""}
                 onChange={e=>{setCaseSearch(e.target.value);if(!e.target.value)fld("caseId","");}}
                 placeholder="輸入姓名搜尋..."
-                style={inp({fontSize:13,paddingRight:28})}
+                style={{...inp({fontSize:13}),paddingRight:30,width:"100%",boxSizing:"border-box"}}
               />
               {form.caseId&&<button onClick={()=>{fld("caseId","");setCaseSearch("");}}
                 style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:14,lineHeight:1}}>✕</button>}
