@@ -47,6 +47,14 @@ const FIREBASE_CONFIG = {
   .sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
   .pulse{animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  @media(max-width:768px){
+    .sidebar{width:60px!important;}
+    .sidebar .brand{display:none!important;}
+    .sidebar nav button span:last-child{display:none!important;}
+    .main-content{padding:16px!important;}
+    .stat-row{gap:8px!important;}
+    .grid-2col{grid-template-columns:1fr!important;}
+  }
 </style>
 </head>
 <body>
@@ -558,7 +566,7 @@ function QuickRecordPanel({data,setData,onSave}){
         <span style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
       </div>
       <div style={{padding:"16px 20px"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 14px",marginBottom:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:"10px 14px",marginBottom:12}}>
           {/* 日期 */}
           <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
@@ -567,7 +575,7 @@ function QuickRecordPanel({data,setData,onSave}){
           {/* 個案 */}
           <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>個案 *</label>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20,alignItems:"start"}}>
+            <div style={{position:"relative"}}>
               <input
                 value={caseSearch||openCases.find(c=>c.id===form.caseId)?.name||""}
                 onChange={e=>{setCaseSearch(e.target.value);if(!e.target.value)fld("caseId","");}}
@@ -666,7 +674,7 @@ function Dashboard({data,setView,setData,onSave}){
         <Stat label="服務資源" val={data.resources.length} sub="筆資料" color="#4A6E8A"/>
         <Stat label="日誌記錄" val={data.diary.length} sub="天" color={C.muted}/>
       </div>
-      <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+      <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:20}}>
         <Card>
           <div style={{fontSize:13,fontWeight:600,color:C.text,marginBottom:14}}>最近訪視紀錄</div>
           {recent.length===0?<div style={{color:C.muted,fontSize:13}}>尚無紀錄</div>:recent.map(v=>{const cn=data.cases.find(x=>x.id===v.caseId)?.name||"（未知）";return(<div key={v.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.border}`,fontSize:13}}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontWeight:600}}>{cn}</span><span style={{color:C.muted,fontSize:11}}>{fmtDate(v.date)}</span></div><div style={{color:C.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v.content}</div></div>);})}
