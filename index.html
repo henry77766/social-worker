@@ -52,6 +52,7 @@ const FIREBASE_CONFIG = {
 <body>
 <div id="root"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script type="text/babel">
 const {useState,useEffect,useRef,useCallback} = React;
 
@@ -2129,9 +2130,10 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               <td style={{padding:"8px 12px",whiteSpace:"nowrap"}}><div style={{display:"flex",gap:6}}><button onClick={handleEdit} style={{padding:"5px 12px",borderRadius:6,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontFamily:font}}>儲存</button><button onClick={()=>setEditId(null)} style={{padding:"5px 10px",borderRadius:6,background:C.cardAlt,color:C.text,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,fontFamily:font}}>取消</button></div></td>
             </tr>
                   : (
-                    <tr key={r.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?C.card:C.cardAlt,transition:"background 0.1s"}}
+                    <tr key={r.id} onClick={()=>setViewRec(viewRec?.id===r.id?null:r)}
+                      style={{borderBottom:`1px solid ${C.border}`,background:viewRec?.id===r.id?"#EEF7F3":i%2===0?C.card:C.cardAlt,transition:"background 0.1s",cursor:"pointer"}}
                       onMouseEnter={e=>e.currentTarget.style.background="#F0F7F4"}
-                      onMouseLeave={e=>e.currentTarget.style.background=i%2===0?C.card:C.cardAlt}>
+                      onMouseLeave={e=>e.currentTarget.style.background=viewRec?.id===r.id?"#EEF7F3":i%2===0?C.card:C.cardAlt}>
                       <td style={{padding:"12px 14px",whiteSpace:"nowrap",color:C.primary,fontWeight:500}}>{fmtDate(r.date)}</td>
                       <td style={{padding:"12px 14px",fontWeight:600,color:C.text}}>{r.contactPerson||<span style={{color:C.border}}>—</span>}</td>
                       <td style={{padding:"12px 14px",color:C.muted}}>{r.resourceUnit||<span style={{color:C.border}}>—</span>}</td>
@@ -2139,11 +2141,9 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
                       <td style={{padding:"12px 14px",textAlign:"center",color:C.text,fontWeight:600}}>{r.contactCount||1}</td>
                       <td style={{padding:"12px 14px",whiteSpace:"nowrap"}}>
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={()=>setViewRec(viewRec?.id===r.id?null:r)}
-                            style={{padding:"4px 12px",borderRadius:6,background:viewRec?.id===r.id?"#EEF7F3":"#F5FAF7",color:C.primary,border:`1px solid ${C.primary}`,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:500}}>🔍 檢視</button>
-                          <button onClick={()=>{setEditId(r.id);setEditRec({...r});setShowAdd(false);setViewRec(null);}}
+                          <button onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r});setShowAdd(false);setViewRec(null);}}
                             style={{padding:"4px 10px",borderRadius:6,background:"#EBF5FF",color:"#2A5FA8",border:"1px solid #C0D8F0",cursor:"pointer",fontSize:12,fontFamily:font}}>✏️</button>
-                          <button onClick={()=>handleDel(r.id)}
+                          <button onClick={e=>{e.stopPropagation();handleDel(r.id);}}
                             style={{padding:"4px 10px",borderRadius:6,background:"#FFF0F0",color:C.danger,border:"1px solid #ECC8C8",cursor:"pointer",fontSize:12,fontFamily:font}}>✕</button>
                         </div>
                       </td>
@@ -2211,6 +2211,34 @@ function MonthlyReport({data,setData,onSave}){
   const monthStr=`${year}-${pad(month)}`;
   const rocYear=year-1911;
   const [editId,setEditId]=useState(null);
+  const [filterMethod,setFilterMethod]=useState(null);
+
+  const exportExcel=()=>{
+    const rows=[["日期","個案姓名","案號","聯繫對象","資源聯繫單位","聯繫方式","次數","聯繫內容"]];
+    const recs=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr)).sort((a,b)=>a.date.localeCompare(b.date));
+    recs.forEach(r=>{
+      const c=data.cases.find(x=>x.id===r.caseId);
+      rows.push([
+        r.date||"",
+        c?.name||"（未知）",
+        c?.caseNo||"",
+        r.contactPersonType?`${r.contactPersonType}${r.contactPerson?` ${r.contactPerson}`:""}`:r.contactPerson||"",
+        r.resourceUnit||"",
+        r.contactMethod||"",
+        parseInt(r.contactCount||1),
+        r.content||""
+      ]);
+    });
+    // 加統計列
+    rows.push([]);
+    rows.push(["統計","聯繫筆數",recs.length,"服務人次",recs.reduce((s,r)=>s+parseInt(r.contactCount||1),0)]);
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    // 欄寬
+    ws["!cols"]=[{wch:12},{wch:10},{wch:14},{wch:16},{wch:18},{wch:10},{wch:6},{wch:40}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,`${rocYear}年${MONTH_NAMES[month-1]}`);
+    XLSX.writeFile(wb,`月服務報表_民${rocYear}年${MONTH_NAMES[month-1]}.xlsx`);
+  };
   const [editRec,setEditRec]=useState({});
   const fldEdit=(k,v)=>setEditRec(r=>({...r,[k]:v}));
 
@@ -2257,6 +2285,10 @@ function MonthlyReport({data,setData,onSave}){
             民{rocYear}年 {MONTH_NAMES[month-1]}
           </span>
           <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>›</button>
+          <button onClick={exportExcel}
+            style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#2A7A4A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6,marginLeft:8}}>
+            📥 匯出 Excel
+          </button>
         </div>
       </div>
 
@@ -2280,11 +2312,20 @@ function MonthlyReport({data,setData,onSave}){
           <div style={{fontSize:12,fontWeight:700,color:C.muted,letterSpacing:"0.06em",marginBottom:10}}>聯繫方式分布</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {Object.entries(byMethod).sort((a,b)=>b[1]-a[1]).map(([m,n])=>(
-              <div key={m} style={{padding:"6px 14px",borderRadius:20,background:"#EEF7F3",border:`1px solid ${C.primary}`,fontSize:12,color:C.primary,fontWeight:600}}>
+              <div key={m} onClick={()=>setFilterMethod(f=>f===m?null:m)}
+                style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600,
+                  background:filterMethod===m?C.primary:"#EEF7F3",
+                  border:`1px solid ${C.primary}`,
+                  color:filterMethod===m?"#fff":C.primary,
+                  transition:"all 0.15s"}}>
                 {m} <span style={{fontWeight:700}}>{n}</span> 次
+                {filterMethod===m&&<span style={{marginLeft:5,opacity:0.7}}>✕</span>}
               </div>
             ))}
           </div>
+          {filterMethod&&<div style={{fontSize:11,color:C.muted,marginTop:8}}>
+            {"顯示「"+filterMethod+"」的 "+records.filter(r=>r.contactMethod===filterMethod).length+" 筆紀錄"} <button onClick={()=>setFilterMethod(null)} style={{background:"none",border:"none",cursor:"pointer",color:C.primary,fontSize:11,padding:0,marginLeft:4}}>清除篩選</button>
+          </div>}
         </div>
       )}
 
@@ -2297,7 +2338,7 @@ function MonthlyReport({data,setData,onSave}){
             <div style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
               <span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
             </div>
-            {records.map((r,i)=>(
+            {(filterMethod?records.filter(r=>r.contactMethod===filterMethod):records).map((r,i)=>(
               editId===r.id
               ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10}}>
                   <div style={{fontSize:12,fontWeight:600,color:C.accent,marginBottom:2}}>編輯紀錄 — {caseName(r.caseId)}</div>
@@ -2343,11 +2384,18 @@ function MonthlyReport({data,setData,onSave}){
                   </button>
                 </div>
             ))}
-            <div style={{padding:"12px 20px",background:C.cardAlt,borderTop:`2px solid ${C.border}`,fontSize:12,color:C.muted,display:"flex",gap:20}}>
-              <span>合計 <strong style={{color:C.text}}>{records.length}</strong> 筆紀錄</span>
-              <span>服務人次 <strong style={{color:C.accent}}>{totalCount}</strong> 次</span>
-              <span>涉及個案 <strong style={{color:"#4A6E8A"}}>{caseCount}</strong> 人</span>
-            </div>
+            {(()=>{
+              const shown=filterMethod?records.filter(r=>r.contactMethod===filterMethod):records;
+              const shownCount=shown.reduce((s,r)=>s+parseInt(r.contactCount||1),0);
+              const shownCases=new Set(shown.map(r=>r.caseId)).size;
+              return(
+                <div style={{padding:"12px 20px",background:C.cardAlt,borderTop:`2px solid ${C.border}`,fontSize:12,color:C.muted,display:"flex",gap:20,flexWrap:"wrap"}}>
+                  <span>合計 <strong style={{color:C.text}}>{shown.length}</strong> 筆紀錄{filterMethod?" (篩選中)":""}</span>
+                  <span>服務人次 <strong style={{color:C.accent}}>{shownCount}</strong> 次</span>
+                  <span>涉及個案 <strong style={{color:"#4A6E8A"}}>{shownCases}</strong> 人</span>
+                </div>
+              );
+            })()}
           </div>
       }
     </div>
