@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2D5A4E">
+<title>社工助手</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  :root{
+    --green:#2D5A4E;--green2:#3D7A62;--accent:#C4824A;
+    --bg:#F5F2EE;--card:#FFFFFF;--border:#E8E2DA;
+    --text:#2C2C2C;--muted:#8A8478;--danger:#C0392B;
+    --serif:'Georgia',serif;--sans:'Helvetica Neue',sans-serif;
+  }
+  html,body{height:100%;background:var(--bg);font-family:var(--sans);color:var(--text);overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100dvh;height:100vh;}
+
+  /* Top bar */
+  .topbar{background:var(--green);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding-top:max(12px,env(safe-area-inset-top));}
+  .topbar-title{font-family:var(--serif);font-size:17px;font-weight:700;color:#fff;}
+  .topbar-sub{font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;}
+  .topbar-right{display:flex;align-items:center;gap:8px;}
+  .user-badge{background:rgba(255,255,255,0.15);border-radius:20px;padding:5px 10px;font-size:12px;color:#fff;}
+
+  /* Tab bar */
+  .tabbar{background:var(--card);border-top:1px solid var(--border);display:flex;flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;padding:10px 4px 8px;gap:3px;cursor:pointer;border:none;background:none;color:var(--muted);transition:color 0.15s;}
+  .tab.active{color:var(--green2);}
+  .tab-icon{font-size:22px;line-height:1;}
+  .tab-label{font-size:10px;font-weight:600;letter-spacing:0.02em;}
+
+  /* Content */
+  .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px;padding-bottom:20px;}
+
+  /* Cards */
+  .card{background:var(--card);border-radius:14px;border:1px solid var(--border);overflow:hidden;margin-bottom:12px;}
+  .card-header{padding:14px 16px;border-bottom:1px solid var(--border);background:#FAFAF8;}
+  .card-title{font-size:14px;font-weight:700;color:var(--text);}
+  .card-body{padding:14px 16px;}
+
+  /* Form */
+  label{font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:5px;letter-spacing:0.04em;}
+  input,select,textarea{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:10px;font-size:15px;font-family:var(--sans);color:var(--text);background:var(--card);outline:none;transition:border-color 0.15s;-webkit-appearance:none;}
+  input:focus,select:focus,textarea:focus{border-color:var(--green2);}
+  textarea{resize:none;line-height:1.5;}
+  .field{margin-bottom:12px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .row3{display:grid;grid-template-columns:1fr 1fr 64px;gap:8px;}
+
+  /* Buttons */
+  .btn{padding:13px 20px;border-radius:12px;border:none;font-size:15px;font-family:var(--sans);font-weight:700;cursor:pointer;width:100%;transition:opacity 0.15s;}
+  .btn:active{opacity:0.75;}
+  .btn-primary{background:var(--green2);color:#fff;}
+  .btn-secondary{background:var(--border);color:var(--muted);}
+  .btn-accent{background:var(--accent);color:#fff;}
+  .btn-sm{padding:8px 14px;font-size:13px;border-radius:8px;width:auto;}
+
+  /* Case list */
+  .case-item{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;cursor:pointer;}
+  .case-item:last-child{border-bottom:none;}
+  .case-item:active{background:#F5F2EE;}
+  .case-avatar{width:40px;height:40px;border-radius:12px;background:var(--green2);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0;}
+  .case-name{font-size:15px;font-weight:600;color:var(--text);}
+  .case-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+  .status-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+  .status-open{background:#E8F5EE;color:#2A7A4A;}
+  .status-pending{background:#FFF8E0;color:#8A6A10;}
+  .status-closed{background:#F0F0EE;color:#888;}
+
+  /* Search */
+  .search-wrap{position:relative;margin-bottom:14px;}
+  .search-wrap input{padding-left:38px;}
+  .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--muted);}
+
+  /* Events */
+  .evt-item{padding:12px 14px;border-radius:10px;margin-bottom:8px;border-left:3px solid var(--green2);}
+  .evt-title{font-size:14px;font-weight:600;color:var(--text);}
+  .evt-meta{font-size:12px;color:var(--muted);margin-top:3px;}
+  .evt-tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-right:6px;}
+
+  /* Record list */
+  .rec-item{padding:12px 0;border-bottom:1px solid var(--border);}
+  .rec-item:last-child{border-bottom:none;}
+  .rec-header{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+  .rec-date{font-size:12px;color:var(--muted);}
+  .rec-method{padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;}
+  .rec-content{font-size:13px;color:var(--text);line-height:1.5;}
+
+  /* Toast */
+  .toast{position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#2C2C2C;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity 0.2s;pointer-events:none;white-space:nowrap;}
+  .toast.show{opacity:1;}
+
+  /* Detail overlay */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;flex-direction:column;justify-content:flex-end;}
+  .overlay-sheet{background:var(--card);border-radius:20px 20px 0 0;max-height:85vh;overflow-y:auto;padding:20px 16px;padding-bottom:calc(20px + env(safe-area-inset-bottom));}
+  .overlay-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 16px;}
+  .overlay-title{font-size:17px;font-weight:700;color:var(--text);margin-bottom:4px;}
+  .overlay-sub{font-size:13px;color:var(--muted);margin-bottom:16px;}
+  .info-row{display:flex;padding:10px 0;border-bottom:1px solid var(--border);}
+  .info-row:last-child{border-bottom:none;}
+  .info-label{font-size:12px;color:var(--muted);width:80px;flex-shrink:0;padding-top:1px;}
+  .info-value{font-size:14px;color:var(--text);flex:1;}
+
+  /* Loading */
+  .loading{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--muted);font-size:14px;flex-direction:column;gap:10px;}
+  .spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--green2);border-radius:50%;animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* Today badge */
+  .today-date{font-family:var(--serif);font-size:18px;font-weight:700;color:var(--text);margin-bottom:16px;}
+  .empty{text-align:center;padding:32px;color:var(--muted);font-size:14px;}
+
+  /* Autocomplete */
+  .autocomplete{position:absolute;top:100%;left:0;right:0;background:var(--card);border:1.5px solid var(--green2);border-top:none;border-radius:0 0 10px 10px;max-height:180px;overflow-y:auto;z-index:50;}
+  .autocomplete-item{padding:11px 14px;font-size:14px;cursor:pointer;border-bottom:1px solid var(--border);}
+  .autocomplete-item:last-child{border-bottom:none;}
+  .autocomplete-item:active{background:var(--bg);}
+  .case-selected{padding:8px 12px;background:#EEF7F3;border-radius:8px;font-size:13px;color:var(--green2);font-weight:600;margin-top:6px;display:flex;align-items:center;justify-content:space-between;}
+
+  .section-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.08em;margin-bottom:10px;margin-top:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">社工助手</div>
+      <div class="topbar-sub" id="today-str"></div>
+    </div>
+    <div class="topbar-right">
+      <div class="user-badge" id="user-badge">載入中...</div>
+    </div>
+  </div>
+
+  <div class="content" id="content">
+    <div class="loading"><div class="spinner"></div>載入中...</div>
+  </div>
+
+  <div class="tabbar">
+    <button class="tab active" onclick="switchTab('quick')" id="tab-quick">
+      <span class="tab-icon">⚡</span>
+      <span class="tab-label">快速紀錄</span>
+    </button>
+    <button class="tab" onclick="switchTab('cases')" id="tab-cases">
+      <span class="tab-icon">👥</span>
+      <span class="tab-label">個案查詢</span>
+    </button>
+    <button class="tab" onclick="switchTab('today')" id="tab-today">
+      <span class="tab-icon">📅</span>
+      <span class="tab-label">今日行程</span>
+    </button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- Firebase -->
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import{getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import{getFirestore,collection,getDocs,addDoc,doc,setDoc,query,where,orderBy,limit}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const FIREBASE_CONFIG={
+  apiKey:"AIzaSyAtVAu8vzt1EGse7xYWU4dH9AEH6MmAlgk",
+  authDomain:"akira-workspace.firebaseapp.com",
+  projectId:"akira-workspace",
+  storageBucket:"akira-workspace.firebasestorage.app",
+  messagingSenderId:"857579284441",
+  appId:"1:857579284441:web:ec7711b445d87be5ffdbc8"
+};
+
+const app=initializeApp(FIREBASE_CONFIG);
+const auth=getAuth(app);
+const db=getFirestore(app);
+
+let uid=null,cases=[],events=[],caseRecords=[];
+let currentTab='quick';
+
+// Helpers
+const uid_=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
+const toDay=()=>new Date().toISOString().slice(0,10);
+const fmtDate=(s)=>{if(!s)return'';const[y,m,d]=s.split('-');return`${parseInt(y)-1911}/${m}/${d}`;};
+const userCol=(col)=>`users/${uid}/${col}`;
+
+function toast(msg,dur=2000){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),dur);
+}
+
+// Load data from Firestore
+async function loadData(){
+  if(!uid)return;
+  try{
+    const [cs,ev,cr]=await Promise.all([
+      getDocs(collection(db,userCol('cases'))),
+      getDocs(collection(db,userCol('events'))),
+      getDocs(collection(db,userCol('caseRecords')))
+    ]);
+    cases=cs.docs.map(d=>({id:d.id,...d.data()}));
+    events=ev.docs.map(d=>({id:d.id,...d.data()}));
+    caseRecords=cr.docs.map(d=>({id:d.id,...d.data()}));
+    renderTab(currentTab);
+  }catch(e){console.error(e);}
+}
+
+// ── TABS ──────────────────────────────────────────────────────
+window.switchTab=function(tab){
+  currentTab=tab;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  renderTab(tab);
+};
+
+function renderTab(tab){
+  if(tab==='quick')renderQuick();
+  else if(tab==='cases')renderCases();
+  else if(tab==='today')renderToday();
+}
+
+// ── QUICK RECORD ──────────────────────────────────────────────
+let quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
+let caseSearch='',showAutoComplete=false;
+
+function renderQuick(){
+  const c=document.getElementById('content');
+  const openCases=cases.filter(c=>c.status!=='結案').sort((a,b)=>a.name.localeCompare(b.name,'zh-TW'));
+  const filtered=caseSearch?openCases.filter(c=>c.name.includes(caseSearch)||c.caseNo?.includes(caseSearch)):[];
+  const selCase=cases.find(c=>c.id===quickForm.caseId);
+  const methods=['電訪','家訪','晤談','外訪','代辦','陪同','簡訊','個研','函件','其他'];
+
+  c.innerHTML=`
+    <div class="section-title">快速聯繫紀錄</div>
+    <div class="card">
+      <div class="card-body">
+        <div class="field">
+          <label>個案 *</label>
+          <div style="position:relative">
+            <input type="text" id="q-case-search" value="${selCase?selCase.name:caseSearch}"
+              placeholder="輸入姓名或案號搜尋..."
+              oninput="onCaseSearch(this.value)"
+              ${selCase?'readonly':''}>
+            ${selCase?`<button onclick="clearCase()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;font-size:18px;color:var(--muted);cursor:pointer">✕</button>`:''}
+            ${showAutoComplete&&filtered.length>0?`
+              <div class="autocomplete">
+                ${filtered.map(c=>`
+                  <div class="autocomplete-item" onclick="selectCase('${c.id}','${c.name}')">
+                    <strong>${c.name}</strong> <span style="color:var(--muted);font-size:12px">${c.caseNo||c.status||''}</span>
+                  </div>`).join('')}
+              </div>`:''}
+            ${showAutoComplete&&caseSearch&&filtered.length===0?`
+              <div class="autocomplete">
+                <div class="autocomplete-item" style="color:var(--muted)">找不到符合個案</div>
+              </div>`:''}
+          </div>
+        </div>
+
+        <div class="row3 field">
+          <div>
+            <label>日期</label>
+            <input type="date" id="q-date" value="${quickForm.date}" onchange="qf('date',this.value)">
+          </div>
+          <div>
+            <label>聯繫方式</label>
+            <select id="q-method" onchange="qf('contactMethod',this.value)">
+              ${methods.map(m=>`<option ${quickForm.contactMethod===m?'selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label>次數</label>
+            <input type="number" id="q-count" value="${quickForm.contactCount}" min="1" onchange="qf('contactCount',this.value)">
+          </div>
+        </div>
+
+        <div class="field">
+          <label>聯繫對象</label>
+          <div class="row2">
+            <select onchange="qf('contactPersonType',this.value)">
+              <option value="">選擇類型...</option>
+              <option ${quickForm.contactPersonType==='案主/家屬'?'selected':''}>案主/家屬</option>
+              <option ${quickForm.contactPersonType==='資源聯繫單位'?'selected':''}>資源聯繫單位</option>
+              <option ${quickForm.contactPersonType==='其他'?'selected':''}>其他</option>
+            </select>
+            ${quickForm.contactPersonType?`<input type="text" value="${quickForm.contactPerson}" placeholder="${quickForm.contactPersonType==='案主/家屬'?'姓名或關係':'單位名稱'}" onchange="qf('contactPerson',this.value)">`:'<div></div>'}
+          </div>
+        </div>
+
+        <div class="field">
+          <label>聯繫內容 *</label>
+          <textarea id="q-content" rows="4" placeholder="簡要記錄聯繫情況..."
+            oninput="qf('content',this.value)">${quickForm.content}</textarea>
+        </div>
+
+        <button class="btn btn-primary" onclick="saveQuick()">💾 儲存聯繫紀錄</button>
+      </div>
+    </div>`;
+}
+
+window.qf=function(k,v){quickForm[k]=v;};
+window.onCaseSearch=function(v){
+  caseSearch=v;
+  showAutoComplete=true;
+  quickForm.caseId='';
+  renderQuick();
+  setTimeout(()=>{const el=document.getElementById('q-case-search');if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);
+};
+window.selectCase=function(id,name){
+  quickForm.caseId=id;caseSearch=name;showAutoComplete=false;
+  renderQuick();
+};
+window.clearCase=function(){
+  quickForm.caseId='';caseSearch='';showAutoComplete=false;
+  renderQuick();
+  setTimeout(()=>document.getElementById('q-case-search')?.focus(),0);
+};
+
+window.saveQuick=async function(){
+  if(!quickForm.caseId){toast('請選擇個案');return;}
+  if(!quickForm.content.trim()){toast('請填寫聯繫內容');return;}
+  try{
+    const rec={id:uid_(),caseId:quickForm.caseId,date:quickForm.date,
+      contactPersonType:quickForm.contactPersonType,contactPerson:quickForm.contactPerson,
+      contactMethod:quickForm.contactMethod,contactCount:quickForm.contactCount,
+      resourceUnit:quickForm.resourceUnit,content:quickForm.content,
+      createdAt:new Date().toISOString()};
+    await setDoc(doc(db,userCol('caseRecords'),rec.id),rec);
+    caseRecords.push(rec);
+    quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
+    caseSearch='';showAutoComplete=false;
+    toast('✓ 已儲存！');
+    renderQuick();
+  }catch(e){toast('儲存失敗，請重試');}
+};
+
+// ── CASES ────────────────────────────────────────────────────
+let caseFilter='',caseDetail=null;
+
+function renderCases(){
+  const c=document.getElementById('content');
+  const filtered=cases.filter(c=>
+    !caseFilter||(c.name||'').includes(caseFilter)||(c.caseNo||'').includes(caseFilter)
+  ).sort((a,b)=>(a.name||'').localeCompare(b.name||'','zh-TW'));
+
+  const statusColor={'開案中':'status-open','待評估':'status-pending','結案':'status-closed'};
+
+  c.innerHTML=`
+    <div class="section-title">個案查詢</div>
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="search" placeholder="搜尋姓名或案號..." value="${caseFilter}"
+        oninput="filterCases(this.value)" autocomplete="off">
+    </div>
+    <div class="card">
+      ${filtered.length===0?`<div class="empty">${caseFilter?'找不到符合的個案':'尚無個案資料'}</div>`:
+        filtered.map(cs=>`
+          <div class="case-item" onclick="showCaseDetail('${cs.id}')">
+            <div class="case-avatar">${(cs.name||'?')[0]}</div>
+            <div style="flex:1;min-width:0">
+              <div class="case-name">${cs.name||'（未命名）'}</div>
+              <div class="case-meta">${cs.caseNo||''} ${cs.disabilityType||''}</div>
+            </div>
+            <span class="status-badge ${statusColor[cs.status]||'status-closed'}">${cs.status||''}</span>
+          </div>`).join('')}
+    </div>`;
+
+  if(caseDetail)renderCaseDetailOverlay();
+}
+
+window.filterCases=function(v){caseFilter=v;renderCases();};
+window.showCaseDetail=function(id){caseDetail=cases.find(c=>c.id===id);renderCases();};
+window.closeCaseDetail=function(){caseDetail=null;renderCases();};
+
+function renderCaseDetailOverlay(){
+  const cs=caseDetail;
+  if(!cs)return;
+  const recs=caseRecords.filter(r=>r.caseId===cs.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const methodColors={'電訪':'#E8F0FB','家訪':'#E8F5EE','晤談':'#F0EBF8','外訪':'#FFF0E8','其他':'#F0F0EE'};
+  const methodText={'電訪':'#3A5FAA','家訪':'#2A7A4A','晤談':'#6A3A9A','外訪':'#9A4A1A','其他':'#666'};
+
+  const overlay=document.createElement('div');
+  overlay.className='overlay';
+  overlay.id='case-overlay';
+  overlay.innerHTML=`
+    <div class="overlay-sheet">
+      <div class="overlay-handle"></div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div class="overlay-title">${cs.name||'（未命名）'}</div>
+          <div class="overlay-sub">${cs.caseNo||''} · ${cs.status||''}</div>
+        </div>
+        <button onclick="closeCaseDetail()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;padding:0;line-height:1">✕</button>
+      </div>
+
+      <div class="section-title">基本資料</div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-body" style="padding:8px 16px">
+          ${[
+            ['障礙類別',cs.disabilityType],['障礙等級',cs.disabilityLevel],
+            ['出生日期',cs.birthDate],['性別',cs.gender],
+            ['電話',cs.phone],['地址',cs.address],
+            ['主責社工',cs.socialWorker]
+          ].filter(([,v])=>v).map(([l,v])=>`
+            <div class="info-row">
+              <span class="info-label">${l}</span>
+              <span class="info-value">${v}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div class="section-title">最近聯繫紀錄（${recs.length} 筆）</div>
+      ${recs.length===0?`<div class="empty">尚無聯繫紀錄</div>`:
+        `<div class="card">
+          <div class="card-body" style="padding:8px 16px">
+            ${recs.slice(0,10).map(r=>`
+              <div class="rec-item">
+                <div class="rec-header">
+                  <span class="rec-date">${fmtDate(r.date)}</span>
+                  <span class="rec-method" style="background:${methodColors[r.contactMethod]||'#EEE'};color:${methodText[r.contactMethod]||'#666'}">${r.contactMethod||''}</span>
+                  ${r.contactCount>1?`<span style="font-size:11px;color:var(--muted)">${r.contactCount}次</span>`:''}
+                </div>
+                <div class="rec-content">${r.content||''}</div>
+              </div>`).join('')}
+          </div>
+        </div>`}
+    </div>`;
+  overlay.addEventListener('click',e=>{if(e.target===overlay)closeCaseDetail();});
+  document.getElementById('app').appendChild(overlay);
+}
+
+// ── TODAY ────────────────────────────────────────────────────
+function renderToday(){
+  const c=document.getElementById('content');
+  const today=toDay();
+  const now=new Date();
+  const dateStr=now.toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  const rocYear=now.getFullYear()-1911;
+  const todayEvts=events.filter(e=>e.date===today&&e.type!=='節日').sort((a,b)=>(a.timeStart||'').localeCompare(b.timeStart||''));
+
+  const typeColors={訪視:'#3D7A62',會議:'#4A78B0',督導:'#7A5A9A',活動:'#C4824A',提醒:'#C4824A',其他:'#8A8478'};
+  const typeBg={訪視:'#E8F5EE',會議:'#E8F0FB',督導:'#F0EBF8',活動:'#FFF0E8',提醒:'#FFF8E0',其他:'#F0F0EE'};
+
+  c.innerHTML=`
+    <div class="today-date">${now.getMonth()+1}月${now.getDate()}日 ${['日','一','二','三','四','五','六'][now.getDay()]}曜日</div>
+
+    <div class="section-title">今日行程（${todayEvts.length} 個）</div>
+    ${todayEvts.length===0?
+      `<div class="card"><div class="empty">今天沒有行程安排</div></div>`:
+      todayEvts.map(e=>`
+        <div class="evt-item" style="background:${typeBg[e.type]||'#F5F5F5'};border-left-color:${typeColors[e.type]||'#888'}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span class="evt-tag" style="background:${typeColors[e.type]||'#888'}22;color:${typeColors[e.type]||'#888'}">${e.type||''}</span>
+            ${e.timeStart?`<span style="font-size:12px;color:var(--muted)">🕐 ${e.timeStart}${e.timeEnd?' - '+e.timeEnd:''}</span>`:''}
+          </div>
+          <div class="evt-title">${e.title||''}</div>
+          ${e.note?`<div class="evt-meta">${e.note}</div>`:''}
+        </div>`).join('')}
+
+    <div class="section-title" style="margin-top:8px">本週行程預覽</div>
+    ${(()=>{
+      const weekEvts=[];
+      for(let i=1;i<=6;i++){
+        const d=new Date();d.setDate(d.getDate()+i);
+        const ds=d.toISOString().slice(0,10);
+        const dayEvts=events.filter(e=>e.date===ds&&e.type!=='節日');
+        if(dayEvts.length>0)weekEvts.push({date:ds,day:['日','一','二','三','四','五','六'][d.getDay()],evts:dayEvts});
+      }
+      return weekEvts.length===0?
+        `<div class="card"><div class="empty">本週無其他行程</div></div>`:
+        weekEvts.map(({date,day,evts})=>`
+          <div class="card" style="margin-bottom:8px">
+            <div class="card-header" style="padding:10px 14px">
+              <span style="font-size:13px;font-weight:700;color:var(--green2)">${fmtDate(date)}（${day}）</span>
+            </div>
+            <div class="card-body" style="padding:8px 14px">
+              ${evts.map(e=>`<div style="font-size:13px;color:var(--text);padding:4px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+                <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:${typeColors[e.type]||'#888'}22;color:${typeColors[e.type]||'#888'};font-weight:600">${e.type||''}</span>
+                ${e.title}
+                ${e.timeStart?`<span style="font-size:11px;color:var(--muted);margin-left:auto">${e.timeStart}</span>`:''}
+              </div>`).join('')}
+            </div>
+          </div>`).join('');
+    })()}`;
+}
+
+// ── AUTH ─────────────────────────────────────────────────────
+onAuthStateChanged(auth,async user=>{
+  if(user){
+    uid=user.uid;
+    // Get username
+    const name=localStorage.getItem('sw_username')||user.email?.split('@')[0]||'社工';
+    document.getElementById('user-badge').textContent=name;
+    document.getElementById('today-str').textContent=new Date().toLocaleDateString('zh-TW',{month:'long',day:'numeric',weekday:'short'});
+    await loadData();
+  }else{
+    showLogin();
+  }
+});
+
+function showLogin(){
+  const c=document.getElementById('content');
+  c.innerHTML=`
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;padding:24px">
+      <div style="font-size:48px;margin-bottom:16px">🏢</div>
+      <div style="font-family:var(--serif);font-size:22px;font-weight:700;color:var(--green);margin-bottom:6px">社工助手</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:32px">請登入以繼續</div>
+      <div style="width:100%;max-width:320px">
+        <div class="field">
+          <label>電子郵件</label>
+          <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email">
+        </div>
+        <div class="field">
+          <label>密碼</label>
+          <input type="password" id="login-pw" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <button class="btn btn-primary" onclick="doLogin()" style="margin-top:8px">登入</button>
+        <div id="login-err" style="color:var(--danger);font-size:13px;text-align:center;margin-top:10px"></div>
+      </div>
+    </div>`;
+}
+
+window.doLogin=async function(){
+  const email=document.getElementById('login-email')?.value;
+  const pw=document.getElementById('login-pw')?.value;
+  if(!email||!pw){toast('請填寫帳號密碼');return;}
+  try{
+    await signInWithEmailAndPassword(auth,email,pw);
+  }catch(e){
+    document.getElementById('login-err').textContent='帳號或密碼錯誤';
+  }
+};
+</script>
+</body>
+</html>
