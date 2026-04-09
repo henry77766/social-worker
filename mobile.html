@@ -276,7 +276,7 @@ function renderQuick(){
 
         <div class="field">
           <label>聯繫對象</label>
-          <select onchange="qf('contactPersonType',this.value);renderQuick()">
+          <select id="q-ptype" onchange="qf('contactPersonType',this.value);renderQuick()">
             <option value="">選擇類型...</option>
             <option ${quickForm.contactPersonType==='案主/家屬'?'selected':''}>案主/家屬</option>
             <option ${quickForm.contactPersonType==='資源聯繫單位'?'selected':''}>資源聯繫單位</option>
@@ -284,7 +284,7 @@ function renderQuick(){
           </select>
           ${quickForm.contactPersonType?`
           <input type="text" style="margin-top:8px" value="${quickForm.contactPerson}"
-            placeholder="${quickForm.contactPersonType==='案主/家屬'?'輸入姓名或關係（如：案主、兒子）':quickForm.contactPersonType==='資源聯繫單位'?'輸入單位名稱':'備註說明'}"
+            id="q-person" placeholder="${quickForm.contactPersonType==='案主/家屬'?'輸入姓名或關係（如：案主、兒子）':quickForm.contactPersonType==='資源聯繫單位'?'輸入單位名稱':'備註說明'}"
             oninput="qf('contactPerson',this.value)">`:''}
         </div>
 
@@ -318,16 +318,23 @@ window.clearCase=function(){
 };
 
 window.saveQuick=async function(){
+  // Read values directly from DOM at save time
+  const dateVal=document.getElementById('q-date')?.value||quickForm.date;
+  const methodVal=document.getElementById('q-method')?.value||quickForm.contactMethod;
+  const countVal=document.getElementById('q-count')?.value||quickForm.contactCount;
+  const contentVal=document.getElementById('q-content')?.value||'';
+  const personTypeVal=document.getElementById('q-ptype')?.value||quickForm.contactPersonType;
+  const personVal=document.getElementById('q-person')?.value||quickForm.contactPerson;
   if(!quickForm.caseId){toast('請選擇個案');return;}
-  if(!quickForm.content.trim()){toast('請填寫聯繫內容');return;}
+  if(!contentVal.trim()){toast('請填寫聯繫內容');return;}
   try{
-    const rec={id:uid_(),caseId:quickForm.caseId,date:quickForm.date,
-      contactPersonType:quickForm.contactPersonType,contactPerson:quickForm.contactPerson,
-      contactMethod:quickForm.contactMethod,contactCount:quickForm.contactCount,
-      resourceUnit:quickForm.resourceUnit,content:quickForm.content,
-      createdAt:new Date().toISOString()};
+    const rec={id:uid_(),caseId:quickForm.caseId,date:dateVal,
+      contactPersonType:personTypeVal,contactPerson:personVal,
+      contactMethod:methodVal,contactCount:countVal,
+      resourceUnit:'',content:contentVal,
+      createdBy:'社工',createdDate:dateVal,lastModified:dateVal};
     const {id:rid,...recData}=rec;
-await db.collection(userCol('caseRecords')).doc(rid).set(recData);
+    await db.collection(userCol('caseRecords')).doc(rid).set(recData);
     caseRecords.push(rec);
     quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
     caseSearch='';showAutoComplete=false;
