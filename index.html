@@ -2426,7 +2426,11 @@ function MonthlyReport({data,setData,onSave}){
   // 篩選該月份的聯繫紀錄
   const records=(data.caseRecords||[])
     .filter(r=>r.date?.startsWith(monthStr))
-    .sort((a,b)=>a.date.localeCompare(b.date));
+    .sort((a,b)=>{
+      const d=a.date.localeCompare(b.date);
+      if(d!==0)return d;
+      return(a.createdAt||a.createdDate||"").localeCompare(b.createdAt||b.createdDate||"");
+    });
 
   // 個案名稱對照
   const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
