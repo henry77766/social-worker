@@ -597,7 +597,7 @@ function QuickRecordPanel({data,setData,onSave}){
   const handleSave=async()=>{
     if(!form.caseId){alert("請選擇個案");return;}
     if(!form.content.trim()){alert("請填寫聯繫內容");return;}
-    const item={...form,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),lastModified:toDay()};
+    const item={...form,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setSaved(true);
@@ -2163,7 +2163,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
 
   const handleAdd=async()=>{
     if(!addRec.contactPerson.trim()&&!addRec.content.trim()){alert("請填寫聯繫對象或聯繫內容");return;}
-    const item={...addRec,id:uid(),caseId:caseData.id,createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),lastModified:toDay()};
+    const item={...addRec,id:uid(),caseId:caseData.id,createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setAddRec(blank);setShowAdd(false);
@@ -2429,7 +2429,9 @@ function MonthlyReport({data,setData,onSave}){
     .sort((a,b)=>{
       const d=a.date.localeCompare(b.date);
       if(d!==0)return d;
-      return(a.createdAt||a.createdDate||"").localeCompare(b.createdAt||b.createdDate||"");
+      const ta=a.createdAt||(a.createdDate?a.createdDate+"T00:00:00":"")||"";
+      const tb=b.createdAt||(b.createdDate?b.createdDate+"T00:00:00":"")||"";
+      return ta.localeCompare(tb);
     });
 
   // 個案名稱對照
