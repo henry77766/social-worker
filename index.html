@@ -100,6 +100,8 @@ const FIREBASE_CONFIG = {
     .stat-row>div{min-width:calc(50% - 7px)!important;}
   }
 </style>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
 </head>
 <body>
 <div id="root"></div>
@@ -1761,7 +1763,74 @@ function CalendarView({data,setData,onSave,onDelete}){
   const [menuId,setMenuId]=useState(null);
   const [menuPos,setMenuPos]=useState({x:0,y:0});
   const [form,setForm]=useState({title:"",type:"訪視",time:"",note:""});
+  const [gcalEvents,setGcalEvents]=useState([]);
+  const [gcalLoading,setGcalLoading]=useState(false);
+  const [gcalError,setGcalError]=useState(null);
+  const [gcalEnabled,setGcalEnabled]=useState(()=>localStorage.getItem("gcal_enabled")==="1");
   const initDone=useRef(false);
+
+  // 載入 Google 日曆事件
+  // Google Calendar API 設定
+  // 請至 https://console.cloud.google.com 建立專案並取得 OAuth Client ID
+  const GCAL_CLIENT_ID = localStorage.getItem("gcal_client_id")||"";
+  const GCAL_SCOPES = "https://www.googleapis.com/auth/calendar.readonly";
+
+  const initGcalApi=()=>new Promise((resolve,reject)=>{
+    if(typeof gapi==="undefined"){reject("Google API 未載入");return;}
+    gapi.load("client",async()=>{
+      try{
+        await gapi.client.init({discoveryDocs:["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"]});
+        resolve();
+      }catch(e){reject(e);}
+    });
+  });
+
+  const signInGcal=()=>new Promise((resolve,reject)=>{
+    if(typeof google==="undefined"){reject("Google Identity 未載入");return;}
+    const client=google.accounts.oauth2.initTokenClient({
+      client_id:GCAL_CLIENT_ID,
+      scope:GCAL_SCOPES,
+      callback:(resp)=>{
+        if(resp.error){reject(resp.error);}
+        else resolve(resp.access_token);
+      }
+    });
+    client.requestAccessToken();
+  });
+
+  const fetchGcal=async()=>{
+    if(!gcalEnabled)return;
+    if(!GCAL_CLIENT_ID){
+      setGcalError("請先設定 Google Client ID（點齒輪圖示）");
+      return;
+    }
+    setGcalLoading(true);setGcalError(null);
+    try{
+      await initGcalApi();
+      const token=await signInGcal();
+      const timeMin=new Date(cur.y,cur.m,1).toISOString();
+      const timeMax=new Date(cur.y,cur.m+1,0,23,59,59).toISOString();
+      const resp=await gapi.client.request({
+        path:"https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        params:{timeMin,timeMax,singleEvents:true,orderBy:"startTime",maxResults:100},
+        headers:{Authorization:"Bearer "+token}
+      });
+      const items=resp.result.items||[];
+      const events=items.map(e=>({
+        title:e.summary||"（無標題）",
+        date:(e.start?.dateTime||e.start?.date||"").slice(0,10),
+        timeStart:e.start?.dateTime?e.start.dateTime.slice(11,16):"",
+        timeEnd:e.end?.dateTime?e.end.dateTime.slice(11,16):"",
+        description:e.description||""
+      })).filter(e=>e.date);
+      setGcalEvents(events);
+    }catch(e){
+      console.error("GCal error:",e);
+      setGcalError("無法載入 Google 日曆，請重新授權");
+    }finally{setGcalLoading(false);}
+  };
+
+  useEffect(()=>{if(gcalEnabled)fetchGcal();},[gcalEnabled,cur.y,cur.m]);
 
   // 點選其他地方關閉選單
   useEffect(()=>{
@@ -1812,6 +1881,7 @@ function CalendarView({data,setData,onSave,onDelete}){
   const pad=n=>String(n).padStart(2,"0");
   const dateStr=(d)=>`${cur.y}-${pad(cur.m+1)}-${pad(d)}`;
   const evtsOn=(date)=>(data.events||[]).filter(e=>e.date===date);
+  const gcalOn=(date)=>gcalEvents.filter(e=>e.date===date);
   const visitsOn=(date)=>data.visits.filter(v=>v.nextVisit===date);
 
   const prevMonth=()=>setCur(c=>{const m=c.m-1;return m<0?{y:c.y-1,m:11}:{y:c.y,m};});
@@ -1856,6 +1926,19 @@ function CalendarView({data,setData,onSave,onDelete}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>{rocYear} 年 {cur.m+1} 月</h1>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>{
+              const id=localStorage.getItem("gcal_client_id")||"";
+              if(!gcalEnabled&&!id){
+                setGcalError("請先在「⚙ 用戶設定」填入 Google Client ID");
+                return;
+              }
+              const v=!gcalEnabled;setGcalEnabled(v);localStorage.setItem("gcal_enabled",v?"1":"0");
+            }}
+            style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${gcalEnabled?"#4285F4":C.border}`,background:gcalEnabled?"#EEF3FF":C.card,color:gcalEnabled?"#4285F4":C.muted,fontSize:12,cursor:"pointer",fontFamily:font,display:"flex",alignItems:"center",gap:5}}>
+            <span style={{fontSize:13}}>📅</span>{gcalEnabled?"Google 日曆已開":"同步 Google 日曆"}
+            {gcalLoading&&<span style={{fontSize:10}}>⏳</span>}
+          </button>
+          {gcalEnabled&&<button onClick={fetchGcal} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:12,cursor:"pointer"}} title="重新整理">↻</button>}
           <button onClick={goToday} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:12,cursor:"pointer",fontFamily:font}}>今天</button>
           <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
           <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
@@ -1891,15 +1974,22 @@ function CalendarView({data,setData,onSave,onDelete}){
                   marginBottom:holiday?1:4}}>{d}</div>
                 {holiday&&<div style={{fontSize:9,color:"#C04040",fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{holiday}</div>}
                 <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                  {evts.filter(e=>e.type!=="節日").slice(0,3).map(e=>(
+                  {evts.filter(e=>e.type!=="節日").slice(0,2).map(e=>(
                     <div key={e.id} style={{borderRadius:3,background:EVT_COLORS[e.type]||C.muted,
                       padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,
                       overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"16px"}}>
                       {e.title}
                     </div>
                   ))}
+                  {gcalOn(ds).slice(0,2).map((e,gi)=>(
+                    <div key={"g"+gi} style={{borderRadius:3,background:"#4285F4",
+                      padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:500,
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"16px"}}>
+                      {e.title}
+                    </div>
+                  ))}
                   {vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,lineHeight:"16px"}}>預排訪視</div>}
-                  {evts.filter(e=>e.type!=="節日").length>3&&<div style={{fontSize:10,color:C.muted}}>+{evts.filter(e=>e.type!=="節日").length-3} 更多</div>}
+                  {(evts.filter(e=>e.type!=="節日").length+gcalOn(ds).length)>4&&<div style={{fontSize:10,color:C.muted}}>更多...</div>}
                 </div>
               </div>
             );
@@ -1911,6 +2001,7 @@ function CalendarView({data,setData,onSave,onDelete}){
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {EVT_TYPES.map(t=>(<div key={t} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:EVT_COLORS[t]}}/>{t}</div>))}
         <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:"#AAB8C2"}}/>預排訪視</div>
+        {gcalEnabled&&<div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#4285F4"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#4285F4"}}/>Google 日曆</div>}
       </div>
 
       {/* 選取日詳情 */}
@@ -1945,7 +2036,18 @@ function CalendarView({data,setData,onSave,onDelete}){
               {v.followup&&<div style={{fontSize:11,color:C.muted,marginTop:3}}>{v.followup}</div>}
             </div>
           ))}
-          {selEvts.filter(e=>e.type!=="節日").length===0&&selVisits.length===0&&!showForm&&(
+          {gcalOn(sel).map((e,i)=>(
+            <div key={"gcal"+i} style={{background:"#EEF3FF",borderRadius:10,border:"1px solid #C5D5F5",padding:"12px 14px",marginBottom:8,borderLeft:"3px solid #4285F4"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:e.description?4:0}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#4285F4"}}>📅 Google 日曆</span>
+                {(e.timeStart||e.timeEnd)&&<span style={{fontSize:11,color:"#4285F4"}}>🕐 {e.timeStart}{e.timeEnd?` - ${e.timeEnd}`:""}</span>}
+              </div>
+              <div style={{fontSize:13,fontWeight:600,color:"#1A3A8A"}}>{e.title}</div>
+              {e.description&&<div style={{fontSize:11,color:"#4285F4",marginTop:3}}>{e.description}</div>}
+            </div>
+          ))}
+          {gcalError&&<div style={{fontSize:12,color:C.danger,padding:"8px 0"}}>{gcalError}</div>}
+          {selEvts.filter(e=>e.type!=="節日").length===0&&selVisits.length===0&&gcalOn(sel).length===0&&!showForm&&(
             <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"24px 0"}}>這天沒有安排<br/><span style={{fontSize:11}}>點「＋ 新增」來加入事件</span></div>
           )}
           {selEvts.filter(e=>e.type!=="節日").map(e=>(
@@ -2455,12 +2557,14 @@ function MonthlyReport({data,setData,onSave}){
 // ── USER SETTINGS ────────────────────────────────────────────────
 function UserSettings({userName,onSave,onClose}){
   const [name,setName]=useState(userName||"");
+  const [clientId,setClientId]=useState(()=>localStorage.getItem("gcal_client_id")||"");
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
 
   const handleSave=async()=>{
     if(!name.trim()){alert("請填寫名稱");return;}
     setSaving(true);
+    localStorage.setItem("gcal_client_id",clientId.trim());
     await onSave(name.trim());
     setDone(true);setSaving(false);
     setTimeout(onClose,800);
@@ -2468,7 +2572,7 @@ function UserSettings({userName,onSave,onClose}){
 
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(26,51,50,0.6)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:C.card,borderRadius:16,width:"min(400px,92vw)",boxShadow:"0 24px 64px rgba(0,0,0,0.28)",overflow:"hidden"}}>
+      <div style={{background:C.card,borderRadius:16,width:"min(440px,92vw)",boxShadow:"0 24px 64px rgba(0,0,0,0.28)",overflow:"hidden"}}>
         <div style={{background:C.sidebar,padding:"20px 24px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <span style={{fontSize:15,fontWeight:700,color:"#fff",fontFamily:serif}}>用戶設定</span>
           <button onClick={onClose} style={{background:"rgba(255,255,255,0.12)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16}}>✕</button>
@@ -2480,6 +2584,15 @@ function UserSettings({userName,onSave,onClose}){
             style={{...inp(),fontSize:15,marginBottom:8}}
             onKeyDown={e=>e.key==="Enter"&&handleSave()}/>
           <div style={{fontSize:11,color:C.muted,marginBottom:20}}>此名稱會顯示在登入畫面、側邊欄及聯繫紀錄中</div>
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,marginBottom:16}}>
+            <label style={{fontSize:12,color:C.muted,display:"block",marginBottom:6,fontWeight:500}}>📅 Google Calendar Client ID</label>
+            <input value={clientId} onChange={e=>setClientId(e.target.value)}
+              placeholder="貼上 Google OAuth Client ID..."
+              style={{...inp(),fontSize:13,marginBottom:6}}/>
+            <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
+              至 <a href="https://console.cloud.google.com" target="_blank" style={{color:C.primary}}>console.cloud.google.com</a> → 憑證 → OAuth 用戶端 ID 取得
+            </div>
+          </div>
           {done
             ? <div style={{textAlign:"center",color:"#2A9D5C",fontWeight:600,fontSize:14}}>✓ 已儲存！</div>
             : <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
