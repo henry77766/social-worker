@@ -1771,34 +1771,67 @@ function CalendarView({data,setData,onSave,onDelete}){
 
 
 
+  // 解析 iCal 格式（內嵌在函式中避免 not defined 問題）
   const fetchGcal=async()=>{
     if(!gcalEnabled)return;
     const icalUrl=localStorage.getItem("gcal_ical_url")||"";
     if(!icalUrl){setGcalError("請先在「⚙ 用戶設定」填入 iCal 網址");return;}
     setGcalLoading(true);setGcalError(null);
+
+    // iCal 解析函式
+    const doParseIcal=(text)=>{
+      const evts=[];
+      const pad2=n=>String(n).padStart(2,"0");
+      text.split("BEGIN:VEVENT").slice(1).forEach(block=>{
+        const get=(key)=>{const m=block.match(new RegExp(key+"[^:]*:([^\r\n]+)"));return m?m[1].trim():"";};
+        const summary=get("SUMMARY").replace(/\\n/g," ").replace(/\\,/g,",");
+        const dtstart=get("DTSTART");
+        const dtend=get("DTEND");
+        const desc=get("DESCRIPTION");
+        if(!dtstart||!summary)return;
+        let date="",timeStart="",timeEnd="";
+        if(dtstart.includes("T")){
+          const raw=dtstart.replace("Z","");
+          date=raw.slice(0,4)+"-"+raw.slice(4,6)+"-"+raw.slice(6,8);
+          timeStart=raw.slice(9,11)+":"+raw.slice(11,13);
+          if(dtend.includes("T")){
+            const re=dtend.replace("Z","");
+            timeEnd=re.slice(9,11)+":"+re.slice(11,13);
+          }
+        }else{
+          date=dtstart.slice(0,4)+"-"+dtstart.slice(4,6)+"-"+dtstart.slice(6,8);
+        }
+        if(date)evts.push({title:summary,date,timeStart,timeEnd,description:desc});
+      });
+      return evts;
+    };
+
     try{
-      // 嘗試多個 CORS proxy
-      let text="";
-      const proxies=[
-        "https://api.allorigins.win/raw?url=",
-        "https://corsproxy.io/?",
-        "https://cors-anywhere.herokuapp.com/",
-      ];
-      for(const proxy of proxies){
-        try{
-          const res=await fetch(proxy+encodeURIComponent(icalUrl),{headers:{"X-Requested-With":"XMLHttpRequest"}});
-          if(res.ok){text=await res.text();break;}
-        }catch(e){continue;}
-      }
-      if(!text)throw new Error("所有 proxy 都無法連線");
-      const events=parseIcal(text);
+      // 直接 fetch iCal（公開日曆不需要 proxy）
+      const webcalUrl=icalUrl.replace("webcal://","https://");
+      const res=await fetch(webcalUrl,{mode:"cors"});
+      if(!res.ok)throw new Error("HTTP "+res.status);
+      const text=await res.text();
+      const events=doParseIcal(text);
       const pad=n=>String(n).padStart(2,"0");
       const monthStr=`${cur.y}-${pad(cur.m+1)}`;
       setGcalEvents(events.filter(e=>e.date.startsWith(monthStr)));
       setGcalError(null);
     }catch(e){
-      console.error("GCal iCal error:",e);
-      setGcalError("無法載入 Google 日曆，請確認 iCal 網址正確");
+      // CORS 失敗時改用 proxy
+      try{
+        const webcalUrl=icalUrl.replace("webcal://","https://");
+        const res=await fetch("https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(webcalUrl));
+        const text=await res.text();
+        const events=doParseIcal(text);
+        const pad=n=>String(n).padStart(2,"0");
+        const monthStr=`${cur.y}-${pad(cur.m+1)}`;
+        setGcalEvents(events.filter(e=>e.date.startsWith(monthStr)));
+        setGcalError(null);
+      }catch(e2){
+        console.error("GCal iCal error:",e2);
+        setGcalError("無法載入 Google 日曆，請確認日曆已設為公開");
+      }
     }finally{setGcalLoading(false);}
   };
 
