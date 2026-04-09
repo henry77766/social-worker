@@ -915,9 +915,19 @@ function CaseEditModal({caseData, onSave, onClose}){
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
     .sort((a,b)=>{
-    // 統一用 createdAt 排序（新的在上）
-    const ta=a.createdAt||a.date||"";
-    const tb=b.createdAt||b.date||"";
+    // 新的在上：優先用 createdAt，其次從 id 末尾取出時間戳，最後用 date
+    const getTs=(r)=>{
+      if(r.createdAt)return r.createdAt;
+      // uid() 末尾 8 碼是 Date.now().toString(36)，可解碼還原時間戳
+      if(r.id&&r.id.length>=8){
+        const ts36=r.id.slice(-8);
+        const ts=parseInt(ts36,36);
+        if(ts>1000000000000)return new Date(ts).toISOString();
+      }
+      return r.date||"";
+    };
+    const ta=getTs(a);
+    const tb=getTs(b);
     return tb.localeCompare(ta);
   });
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
@@ -2156,9 +2166,19 @@ const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A
 function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
     .sort((a,b)=>{
-    // 統一用 createdAt 排序（新的在上）
-    const ta=a.createdAt||a.date||"";
-    const tb=b.createdAt||b.date||"";
+    // 新的在上：優先用 createdAt，其次從 id 末尾取出時間戳，最後用 date
+    const getTs=(r)=>{
+      if(r.createdAt)return r.createdAt;
+      // uid() 末尾 8 碼是 Date.now().toString(36)，可解碼還原時間戳
+      if(r.id&&r.id.length>=8){
+        const ts36=r.id.slice(-8);
+        const ts=parseInt(ts36,36);
+        if(ts>1000000000000)return new Date(ts).toISOString();
+      }
+      return r.date||"";
+    };
+    const ta=getTs(a);
+    const tb=getTs(b);
     return tb.localeCompare(ta);
   });
 
