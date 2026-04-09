@@ -93,11 +93,14 @@ const FIREBASE_CONFIG = {
       padding:16px!important;
       flex:1!important;
       overflow:visible!important;
+      overflow-y:visible!important;
       height:auto!important;
       min-height:0!important;
+      max-height:none!important;
     }
     .grid-2col{grid-template-columns:1fr!important;}
     .stat-row>div{min-width:calc(50% - 7px)!important;}
+    .main-content{padding-bottom:80px!important;}
   }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   .cal-event-bar { font-size: 12px !important; }
@@ -1959,7 +1962,7 @@ function CalendarView({data,setData,onSave,onDelete}){
             <div key={d} style={{textAlign:"center",fontSize:13,fontWeight:700,color:i===0?"#C04040":i===6?"#4A6E8A":C.muted,padding:"10px 0"}}>{d}</div>
           ))}
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridAutoRows:"120px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridAutoRows:"minmax(120px,auto)"}}>
           {cells.map((d,i)=>{
             if(!d)return<div key={`e${i}`} style={{borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,minHeight:90}}/>;
             const ds=dateStr(d);
@@ -2003,7 +2006,7 @@ function CalendarView({data,setData,onSave,onDelete}){
                       ))}
                       {allEvts.length<3&&vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"3px 6px",fontSize:12,color:"#fff",fontWeight:600,lineHeight:"18px"}}>預排訪視</div>}
                       {restN>0&&<div
-                        onClick={ev=>{ev.stopPropagation();setSel(ds);setTimeout(()=>document.getElementById("cal-detail")?.scrollIntoView({behavior:"smooth",block:"start"}),150);}}
+                        onClick={ev=>{ev.stopPropagation();setSel(ds);setEditId(null);setShowForm(false);setTimeout(()=>{const el=document.querySelector(".detail-panel");if(el){el.scrollIntoView({behavior:"smooth",block:"nearest"});el.style.outline="2px solid "+C.primary;setTimeout(()=>el.style.outline="",1000);}},200);}}
                         style={{fontSize:11,color:C.primary,lineHeight:"18px",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>
                         還有 {restN} 個
                       </div>}
