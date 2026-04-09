@@ -2016,8 +2016,8 @@ function CalendarView({data,setData,onSave,onDelete}){
 
 // ── CASE RECORDS MODAL ──────────────────────────────────────────
 const CONTACT_METHODS=["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"];
-const CONTACT_METHOD_COLOR={"電訪":"#E8F0FB","家訪":"#E8F5EE","晤談":"#F0EBF8","外訪":"#FFF0E8","代辦":"#FFF8E0","陪同":"#E8F8F0","簡訊":"#FFF4E8","個研":"#EBF0FF","函件":"#F5EDE8","其他":"#F0F0EE"};;
-const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A9A","外訪":"#9A4A1A","代辦":"#8A6A10","陪同":"#1A7A5A","簡訊":"#AA6020","個研":"#2A4A9A","函件":"#7A4A2A","其他":C.muted};;
+const CONTACT_METHOD_COLOR={"電訪":"#E8F0FB","家訪":"#E8F5EE","晤談":"#F0EBF8","外訪":"#FFF0E8","代辦":"#FFF8E0","陪同":"#E8F8F0","簡訊":"#FFF4E8","個研":"#EBF0FF","函件":"#F5EDE8","其他":"#F0F0EE"};
+const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A9A","外訪":"#9A4A1A","代辦":"#8A6A10","陪同":"#1A7A5A","簡訊":"#AA6020","個研":"#2A4A9A","函件":"#7A4A2A","其他":C.muted};
 
 function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
