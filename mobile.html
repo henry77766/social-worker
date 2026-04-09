@@ -194,14 +194,17 @@ function toast(msg,dur=2000){
 async function loadData(){
   if(!uid)return;
   try{
-    const [cs,ev,cr]=await Promise.all([
+    const [cs,ev]=await Promise.all([
       db.collection(userCol('cases')).get(),
       db.collection(userCol('events')).get(),
-      db.collection(userCol('caseRecords')).get()
     ]);
     cases=cs.docs.map(d=>({id:d.id,...d.data()}));
     events=ev.docs.map(d=>({id:d.id,...d.data()}));
-    caseRecords=cr.docs.map(d=>({id:d.id,...d.data()}));
+    // 即時監聽聯繫紀錄
+    db.collection(userCol('caseRecords')).onSnapshot(snap=>{
+      caseRecords=snap.docs.map(d=>({id:d.id,...d.data()}));
+      if(currentTab==='cases')renderCases();
+    });
     renderTab(currentTab);
   }catch(e){console.error(e);}
 }
@@ -332,15 +335,17 @@ window.saveQuick=async function(){
       contactPersonType:personTypeVal,contactPerson:personVal,
       contactMethod:methodVal,contactCount:countVal,
       resourceUnit:'',content:contentVal,
-      createdBy:'社工',createdDate:dateVal,lastModified:dateVal};
+      createdBy:'社工',createdDate:dateVal,createdAt:new Date().toISOString(),lastModified:dateVal};
     const {id:rid,...recData}=rec;
+    console.log('Saving to path:', userCol('caseRecords'), 'uid:', uid, 'rid:', rid);
     await db.collection(userCol('caseRecords')).doc(rid).set(recData);
+    console.log('Save success!');
     caseRecords.push(rec);
     quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
     caseSearch='';showAutoComplete=false;
     toast('✓ 已儲存！');
     renderQuick();
-  }catch(e){toast('儲存失敗，請重試');}
+  }catch(e){console.error('Save error:',e);toast('儲存失敗：'+e.message);}
 };
 
 // ── CASES ────────────────────────────────────────────────────
