@@ -2705,10 +2705,23 @@ function App(){
           // 嘗試搬移舊資料（只在第一次登入時執行）
           const migrated=await migrateOldData();
           if(migrated)console.log("✅ 舊資料搬移完成");
-          const [cases,visits,resources,diary,events,caseRecords,levelHistory]=await Promise.all([fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("events"),fbGet("caseRecords"),fbGet("levelHistory")]);
-          
+          // 一次性載入靜態資料
+          const [cases,visits,resources,diary,levelHistory]=await Promise.all([
+            fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("levelHistory")
+          ]);
           const r=resources.length>0?resources:DEFAULT_RESOURCES;
-          setData({cases,visits,resources:r,diary,events,caseRecords,levelHistory:levelHistory||[]});
+          setData(d=>({...d,cases,visits,resources:r,diary,levelHistory:levelHistory||[]}));
+
+          // onSnapshot 即時監聽經常變動的資料
+          const uid=user.uid;
+          userCol("events").onSnapshot(snap=>{
+            const events=snap.docs.map(d=>({id:d.id,...d.data()}));
+            setData(d=>({...d,events}));
+          });
+          userCol("caseRecords").onSnapshot(snap=>{
+            const caseRecords=snap.docs.map(d=>({id:d.id,...d.data()}));
+            setData(d=>({...d,caseRecords}));
+          });
           setSyncStatus("synced");
         }catch(e){
           console.error(e);
