@@ -1777,8 +1777,20 @@ function CalendarView({data,setData,onSave,onDelete}){
     if(!icalUrl){setGcalError("請先在「⚙ 用戶設定」填入 iCal 網址");return;}
     setGcalLoading(true);setGcalError(null);
     try{
-      const res=await fetch("https://corsproxy.io/?"+encodeURIComponent(icalUrl));
-      const text=await res.text();
+      // 嘗試多個 CORS proxy
+      let text="";
+      const proxies=[
+        "https://api.allorigins.win/raw?url=",
+        "https://corsproxy.io/?",
+        "https://cors-anywhere.herokuapp.com/",
+      ];
+      for(const proxy of proxies){
+        try{
+          const res=await fetch(proxy+encodeURIComponent(icalUrl),{headers:{"X-Requested-With":"XMLHttpRequest"}});
+          if(res.ok){text=await res.text();break;}
+        }catch(e){continue;}
+      }
+      if(!text)throw new Error("所有 proxy 都無法連線");
       const events=parseIcal(text);
       const pad=n=>String(n).padStart(2,"0");
       const monthStr=`${cur.y}-${pad(cur.m+1)}`;
