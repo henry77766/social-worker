@@ -2752,16 +2752,17 @@ function App(){
           const r=resources.length>0?resources:DEFAULT_RESOURCES;
           setData(d=>({...d,cases,visits,resources:r,diary,levelHistory:levelHistory||[]}));
 
-          // onSnapshot 即時監聽經常變動的資料
-          const uid=user.uid;
-          userCol("events").onSnapshot(snap=>{
+          // onSnapshot 即時監聽經常變動的資料（返回 unsubscribe 函式）
+          const unsubEvents=userCol("events").onSnapshot(snap=>{
             const events=snap.docs.map(d=>({id:d.id,...d.data()}));
             setData(d=>({...d,events}));
           });
-          userCol("caseRecords").onSnapshot(snap=>{
+          const unsubRecords=userCol("caseRecords").onSnapshot(snap=>{
             const caseRecords=snap.docs.map(d=>({id:d.id,...d.data()}));
             setData(d=>({...d,caseRecords}));
           });
+          // 儲存清除函式供登出時使用
+          window._unsubFirestore=[unsubEvents,unsubRecords];
           setSyncStatus("synced");
         }catch(e){
           console.error(e);
@@ -2806,7 +2807,7 @@ function App(){
 
   const handleLogout=async()=>{
     if(!confirm("確定要登出嗎？"))return;
-    await firebase.auth().signOut();
+    await (window._unsubFirestore||[]).forEach(fn=>fn());window._unsubFirestore=[];firebase.auth().signOut();
     setReady(false);
   };
 
