@@ -914,7 +914,12 @@ function CaseEditModal({caseData, onSave, onClose}){
 // ── CASE VIEW MODAL ──────────────────────────────────────────────
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    .sort((a,b)=>{
+    // 統一用 createdAt 排序（新的在上）
+    const ta=a.createdAt||a.date||"";
+    const tb=b.createdAt||b.date||"";
+    return tb.localeCompare(ta);
+  });
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
   const Section=({title,children})=>(
     <div style={{marginBottom:20}}>
@@ -1595,7 +1600,12 @@ function DiaryLog({data,setData,onSave,onDelete}){
     setSaved(true);setTimeout(()=>setSaved(false),2000);
   };
   const del=async()=>{if(!confirm("確定刪除？"))return;setData(d=>({...d,diary:d.diary.filter(x=>x.date!==date)}));if(existing)await onDelete("diary",existing.id);setContent("");};
-  const sorted=[...data.diary].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const sorted=[...data.diary].sort((a,b)=>{
+    // 統一用 createdAt 排序（新的在上）
+    const ta=a.createdAt||a.date||"";
+    const tb=b.createdAt||b.date||"";
+    return tb.localeCompare(ta);
+  });
   return(
     <div>
       <H1>工作日誌</H1>
@@ -2145,7 +2155,12 @@ const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A
 
 function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    .sort((a,b)=>{
+    // 統一用 createdAt 排序（新的在上）
+    const ta=a.createdAt||a.date||"";
+    const tb=b.createdAt||b.date||"";
+    return tb.localeCompare(ta);
+  });
 
   const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",content:""};
   const [showAdd,setShowAdd]=useState(false);
@@ -2427,11 +2442,10 @@ function MonthlyReport({data,setData,onSave}){
   const records=(data.caseRecords||[])
     .filter(r=>r.date?.startsWith(monthStr))
     .sort((a,b)=>{
-      const d=a.date.localeCompare(b.date);
-      if(d!==0)return d;
-      const ta=a.createdAt||(a.createdDate?a.createdDate+"T00:00:00":"")||"";
-      const tb=b.createdAt||(b.createdDate?b.createdDate+"T00:00:00":"")||"";
-      return ta.localeCompare(tb);
+      // 統一用 createdAt 排序（新的在上）
+      const ta=a.createdAt||a.date||"";
+      const tb=b.createdAt||b.date||"";
+      return tb.localeCompare(ta);
     });
 
   // 個案名稱對照
