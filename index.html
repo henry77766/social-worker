@@ -100,8 +100,6 @@ const FIREBASE_CONFIG = {
     .stat-row>div{min-width:calc(50% - 7px)!important;}
   }
 </style>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js" async defer></script>
 </head>
 <body>
 <div id="root"></div>
@@ -1927,9 +1925,9 @@ function CalendarView({data,setData,onSave,onDelete}){
         <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>{rocYear} 年 {cur.m+1} 月</h1>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
           <button onClick={()=>{
-              const id=localStorage.getItem("gcal_client_id")||"";
-              if(!gcalEnabled&&!id){
-                setGcalError("請先在「⚙ 用戶設定」填入 Google Client ID");
+              const url=localStorage.getItem("gcal_ical_url")||"";
+              if(!gcalEnabled&&!url){
+                setGcalError("請先在「⚙ 用戶設定」填入 Google 日曆 iCal 網址");
                 return;
               }
               const v=!gcalEnabled;setGcalEnabled(v);localStorage.setItem("gcal_enabled",v?"1":"0");
@@ -2557,14 +2555,14 @@ function MonthlyReport({data,setData,onSave}){
 // ── USER SETTINGS ────────────────────────────────────────────────
 function UserSettings({userName,onSave,onClose}){
   const [name,setName]=useState(userName||"");
-  const [clientId,setClientId]=useState(()=>localStorage.getItem("gcal_client_id")||"");
+  const [clientId,setClientId]=useState(()=>localStorage.getItem("gcal_ical_url")||"");
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
 
   const handleSave=async()=>{
     if(!name.trim()){alert("請填寫名稱");return;}
     setSaving(true);
-    localStorage.setItem("gcal_client_id",clientId.trim());
+    localStorage.setItem("gcal_ical_url",clientId.trim());
     await onSave(name.trim());
     setDone(true);setSaving(false);
     setTimeout(onClose,800);
@@ -2585,12 +2583,12 @@ function UserSettings({userName,onSave,onClose}){
             onKeyDown={e=>e.key==="Enter"&&handleSave()}/>
           <div style={{fontSize:11,color:C.muted,marginBottom:20}}>此名稱會顯示在登入畫面、側邊欄及聯繫紀錄中</div>
           <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,marginBottom:16}}>
-            <label style={{fontSize:12,color:C.muted,display:"block",marginBottom:6,fontWeight:500}}>📅 Google Calendar Client ID</label>
+            <label style={{fontSize:12,color:C.muted,display:"block",marginBottom:6,fontWeight:500}}>📅 Google 日曆 iCal 網址</label>
             <input value={clientId} onChange={e=>setClientId(e.target.value)}
-              placeholder="貼上 Google OAuth Client ID..."
-              style={{...inp(),fontSize:13,marginBottom:6}}/>
+              placeholder="貼上 Google 日曆 iCal 公開網址..."
+              style={{...inp(),fontSize:12,marginBottom:6}}/>
             <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-              至 <a href="https://console.cloud.google.com" target="_blank" style={{color:C.primary}}>console.cloud.google.com</a> → 憑證 → OAuth 用戶端 ID 取得
+              Google 日曆 → 設定 → 選擇日曆 → 整合日曆 → 複製「公開網址（iCal 格式）」
             </div>
           </div>
           {done
