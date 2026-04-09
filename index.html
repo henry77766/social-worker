@@ -99,6 +99,8 @@ const FIREBASE_CONFIG = {
     .grid-2col{grid-template-columns:1fr!important;}
     .stat-row>div{min-width:calc(50% - 7px)!important;}
   }
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  .cal-event-bar { font-size: 12px !important; }
 </style>
 </head>
 <body>
@@ -1954,7 +1956,7 @@ function CalendarView({data,setData,onSave,onDelete}){
       <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden",marginBottom:16}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
           {["日","一","二","三","四","五","六"].map((d,i)=>(
-            <div key={d} style={{textAlign:"center",fontSize:12,fontWeight:600,color:i===0?"#C04040":i===6?"#4A6E8A":C.muted,padding:"10px 0"}}>{d}</div>
+            <div key={d} style={{textAlign:"center",fontSize:13,fontWeight:700,color:i===0?"#C04040":i===6?"#4A6E8A":C.muted,padding:"10px 0"}}>{d}</div>
           ))}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gridAutoRows:"120px"}}>
@@ -1974,28 +1976,40 @@ function CalendarView({data,setData,onSave,onDelete}){
                   borderRight:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,
                   background:isSel?"#EBF4F0":isToday?"#FFF8F0":C.card,
                   outline:isSel?`2px solid ${C.primary}`:"none",outlineOffset:-2}}>
-                <div style={{fontSize:13,fontWeight:isToday||isSel?700:400,
+                <div style={{fontSize:14,fontWeight:isToday||isSel?700:500,
                   color:isSun?"#C04040":isSat?"#4A6E8A":isSel?C.primary:isToday?C.accent:C.text,
                   marginBottom:holiday?1:4}}>{d}</div>
-                {holiday&&<div style={{fontSize:9,color:"#C04040",fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{holiday}</div>}
-                <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                  {evts.filter(e=>e.type!=="節日").slice(0,3).map(e=>(
-                    <div key={e.id} style={{borderRadius:3,background:EVT_COLORS[e.type]||C.muted,
-                      padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,
-                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"16px"}}>
-                      {e.title}
+                {holiday&&<div style={{fontSize:11,color:"#C04040",fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{holiday}</div>}
+                {(()=>{
+                  const localEvts=evts.filter(e=>e.type!=="節日");
+                  const gEvts=gcalOn(ds);
+                  const allEvts=[...localEvts.map(e=>({...e,_src:"local"})),...gEvts.map(e=>({...e,_src:"gcal"}))];
+                  const shown=allEvts.slice(0,3);
+                  const rest=allEvts.length-shown.length+(vis.length>0?1:0);
+                  return(
+                    <div style={{display:"flex",flexDirection:"column",gap:2}}>
+                      {shown.map((e,idx)=>e._src==="gcal"?(
+                        <div key={"g"+idx} style={{borderRadius:3,background:"#4285F4",
+                          padding:"3px 6px",fontSize:12,color:"#fff",fontWeight:500,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"18px"}}>
+                          {e.title}
+                        </div>
+                      ):(
+                        <div key={e.id} style={{borderRadius:3,background:EVT_COLORS[e.type]||C.muted,
+                          padding:"3px 6px",fontSize:12,color:"#fff",fontWeight:600,
+                          overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"18px"}}>
+                          {e.title}
+                        </div>
+                      ))}
+                      {allEvts.length<=3&&vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,lineHeight:"16px"}}>預排訪視</div>}
+                      {rest>0&&<div
+                        onClick={e=>{e.stopPropagation();setSel(ds);setTimeout(()=>document.getElementById("cal-detail")?.scrollIntoView({behavior:"smooth",block:"start"}),150);}}
+                        style={{fontSize:11,color:C.primary,lineHeight:"18px",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>
+                        還有 {rest} 個
+                      </div>}
                     </div>
-                  ))}
-                  {gcalOn(ds).slice(0,1).map((e,gi)=>(
-                    <div key={"g"+gi} style={{borderRadius:3,background:"#4285F4",
-                      padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:500,
-                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"16px"}}>
-                      {e.title}
-                    </div>
-                  ))}
-                  {vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,lineHeight:"16px"}}>預排訪視</div>}
-                  {(evts.filter(e=>e.type!=="節日").length+gcalOn(ds).length)>4&&<div style={{fontSize:10,color:C.muted,lineHeight:"16px"}}>+{evts.filter(e=>e.type!=="節日").length+gcalOn(ds).length-4} 更多</div>}
-                </div>
+                  );
+                })()}
               </div>
             );
           })}
@@ -2010,7 +2024,7 @@ function CalendarView({data,setData,onSave,onDelete}){
       </div>
 
       {/* 選取日詳情 */}
-      <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+      <div className="detail-panel" style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:15,fontWeight:700,color:C.text}}>{fmtDate(sel)}</span>
