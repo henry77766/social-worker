@@ -122,6 +122,9 @@
 
   .section-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:0.08em;margin-bottom:10px;margin-top:4px;}
 </style>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div id="app">
@@ -157,10 +160,8 @@
 <div class="toast" id="toast"></div>
 
 <!-- Firebase -->
-<script type="module">
-import{initializeApp}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import{getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import{getFirestore,collection,getDocs,addDoc,doc,setDoc,query,where,orderBy,limit}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+<script>
+
 
 const FIREBASE_CONFIG={
   apiKey:"AIzaSyAtVAu8vzt1EGse7xYWU4dH9AEH6MmAlgk",
@@ -171,9 +172,9 @@ const FIREBASE_CONFIG={
   appId:"1:857579284441:web:ec7711b445d87be5ffdbc8"
 };
 
-const app=initializeApp(FIREBASE_CONFIG);
-const auth=getAuth(app);
-const db=getFirestore(app);
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth=firebase.auth();
+const db=firebase.firestore();
 
 let uid=null,cases=[],events=[],caseRecords=[];
 let currentTab='quick';
@@ -182,7 +183,7 @@ let currentTab='quick';
 const uid_=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
 const toDay=()=>new Date().toISOString().slice(0,10);
 const fmtDate=(s)=>{if(!s)return'';const[y,m,d]=s.split('-');return`${parseInt(y)-1911}/${m}/${d}`;};
-const userCol=(col)=>`users/${uid}/${col}`;
+const userCol=(col)=>uid?`users/${uid}/${col}`:col;
 
 function toast(msg,dur=2000){
   const t=document.getElementById('toast');
@@ -195,9 +196,9 @@ async function loadData(){
   if(!uid)return;
   try{
     const [cs,ev,cr]=await Promise.all([
-      getDocs(collection(db,userCol('cases'))),
-      getDocs(collection(db,userCol('events'))),
-      getDocs(collection(db,userCol('caseRecords')))
+      db.collection(userCol('cases')).get(),
+      db.collection(userCol('events')).get(),
+      db.collection(userCol('caseRecords')).get()
     ]);
     cases=cs.docs.map(d=>({id:d.id,...d.data()}));
     events=ev.docs.map(d=>({id:d.id,...d.data()}));
@@ -326,7 +327,8 @@ window.saveQuick=async function(){
       contactMethod:quickForm.contactMethod,contactCount:quickForm.contactCount,
       resourceUnit:quickForm.resourceUnit,content:quickForm.content,
       createdAt:new Date().toISOString()};
-    await setDoc(doc(db,userCol('caseRecords'),rec.id),rec);
+    const {id:rid,...recData}=rec;
+await db.collection(userCol('caseRecords')).doc(rid).set(recData);
     caseRecords.push(rec);
     quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
     caseSearch='';showAutoComplete=false;
@@ -486,7 +488,7 @@ function renderToday(){
 }
 
 // ── AUTH ─────────────────────────────────────────────────────
-onAuthStateChanged(auth,async user=>{
+auth.onAuthStateChanged(async user=>{
   if(user){
     uid=user.uid;
     // Get username
@@ -526,7 +528,7 @@ window.doLogin=async function(){
   const pw=document.getElementById('login-pw')?.value;
   if(!email||!pw){toast('請填寫帳號密碼');return;}
   try{
-    await signInWithEmailAndPassword(auth,email,pw);
+    await auth.signInWithEmailAndPassword(email,pw);
   }catch(e){
     document.getElementById('login-err').textContent='帳號或密碼錯誤';
   }
