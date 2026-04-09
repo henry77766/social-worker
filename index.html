@@ -48,14 +48,19 @@ const FIREBASE_CONFIG = {
   .pulse{animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
   @media(max-width:700px){
-    body{overflow-x:hidden;}
-    .app-shell{flex-direction:column!important;}
+    html,body{height:100%;overflow:hidden;}
+    .app-shell{
+      flex-direction:column!important;
+      height:100vh!important;
+      height:100dvh!important;
+    }
     .sidebar{
       width:100%!important;
       height:auto!important;
       flex-direction:row!important;
-      flex-shrink:0;
+      flex-shrink:0!important;
       overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
       border-right:none!important;
       border-bottom:1px solid rgba(255,255,255,0.1);
     }
@@ -65,6 +70,7 @@ const FIREBASE_CONFIG = {
       flex-direction:row!important;
       padding:0!important;
       overflow-x:auto;
+      -webkit-overflow-scrolling:touch;
       flex:1;
     }
     .sidebar nav button{
@@ -75,7 +81,14 @@ const FIREBASE_CONFIG = {
       min-width:auto;
     }
     .sidebar .bottom-bar{display:none!important;}
-    .main-content{padding:16px!important;overflow-x:hidden;}
+    .main-content{
+      padding:16px!important;
+      flex:1!important;
+      overflow-y:auto!important;
+      overflow-x:hidden!important;
+      -webkit-overflow-scrolling:touch!important;
+      height:0!important;
+    }
     .grid-2col{grid-template-columns:1fr!important;}
     .stat-row>div{min-width:calc(50% - 7px)!important;}
   }
@@ -590,13 +603,8 @@ function QuickRecordPanel({data,setData,onSave}){
         <span style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
       </div>
       <div style={{padding:"16px 20px"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 14px",marginBottom:12}}>
-          {/* 日期 */}
-          <div>
-            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
-            <input type="date" value={form.date} onChange={e=>fld("date",e.target.value)} style={inp({fontSize:13})}/>
-          </div>
-          {/* 個案 */}
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
+          {/* 個案 - 全寬 */}
           <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>個案 *</label>
             <div style={{position:"relative"}}>
@@ -625,41 +633,44 @@ function QuickRecordPanel({data,setData,onSave}){
                 </div>
               ):<div style={{border:`1px solid ${C.border}`,borderRadius:8,background:C.card,padding:"10px 14px",fontSize:13,color:C.muted,marginTop:4}}>找不到符合的個案</div>;
             })()}
-            {form.caseId&&(()=>{
-              const c=openCases.find(x=>x.id===form.caseId);
-              return c?<div style={{fontSize:11,color:C.primary,marginTop:4,fontWeight:500}}>✓ {c.name} {c.caseNo?`(${c.caseNo})`:""}</div>:null;
-            })()}
+            {form.caseId&&(()=>{const c=openCases.find(x=>x.id===form.caseId);return c?<div style={{fontSize:11,color:C.primary,marginTop:4,fontWeight:500}}>✓ {c.name} {c.caseNo?`(${c.caseNo})`:""}</div>:null;})()}
           </div>
-          {/* 聯繫對象 */}
-          <div>
-            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫對象</label>
-            <select value={form.contactPersonType||""} onChange={e=>fld("contactPersonType",e.target.value)} style={inp({fontSize:13,marginBottom:6})}>
-              <option value="">選擇類型...</option>
-              <option value="案主/家屬">案主／家屬</option>
-              <option value="資源聯繫單位">資源聯繫單位</option>
-              <option value="其他">其他</option>
-            </select>
-            {form.contactPersonType&&(
-              <input value={form.contactPerson} onChange={e=>fld("contactPerson",e.target.value)}
-                placeholder={form.contactPersonType==="案主/家屬"?"輸入姓名或關係（如：案主、兒子）":form.contactPersonType==="資源聯繫單位"?"輸入單位名稱":"備註說明"}
-                style={inp({fontSize:13})}/>
-            )}
-          </div>
-          {/* 聯繫方式 + 次數 */}
-          <div style={{display:"flex",gap:8}}>
-            <div style={{flex:2}}>
+          {/* 日期 + 聯繫方式 + 次數 同一行 */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 64px",gap:8}}>
+            <div>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
+              <input type="date" value={form.date} onChange={e=>fld("date",e.target.value)} style={inp({fontSize:13})}/>
+            </div>
+            <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫方式</label>
               <select value={form.contactMethod} onChange={e=>fld("contactMethod",e.target.value)} style={inp({fontSize:13})}>
                 {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
               </select>
             </div>
-            <div style={{flex:1}}>
+            <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>次數</label>
               <input type="number" min="1" value={form.contactCount||"1"} onChange={e=>fld("contactCount",e.target.value)} style={inp({fontSize:13})}/>
             </div>
           </div>
-          {/* 內容 */}
-          <div style={{gridColumn:"span 2"}}>
+          {/* 聯繫對象 - 全寬 */}
+          <div>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫對象</label>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <select value={form.contactPersonType||""} onChange={e=>fld("contactPersonType",e.target.value)} style={inp({fontSize:13})}>
+                <option value="">選擇類型...</option>
+                <option value="案主/家屬">案主／家屬</option>
+                <option value="資源聯繫單位">資源聯繫單位</option>
+                <option value="其他">其他</option>
+              </select>
+              {form.contactPersonType&&(
+                <input value={form.contactPerson} onChange={e=>fld("contactPerson",e.target.value)}
+                  placeholder={form.contactPersonType==="案主/家屬"?"姓名或關係":form.contactPersonType==="資源聯繫單位"?"單位名稱":"備註"}
+                  style={inp({fontSize:13})}/>
+              )}
+            </div>
+          </div>
+          {/* 內容 - 全寬 */}
+          <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫內容 *</label>
             <textarea value={form.content} onChange={e=>fld("content",e.target.value)}
               placeholder="簡要記錄聯繫情況..."
@@ -2618,7 +2629,7 @@ function App(){
       {showSetup&&<SetupGuide/>}
       <Sidebar view={view} setView={setView} syncStatus={syncStatus} onSetup={()=>setShowSetup(v=>!v)} onLogout={user?handleLogout:null} userName={userName} onUserSettings={()=>setShowUserSettings(true)}/>
       {showUserSettings&&<UserSettings userName={userName} onSave={saveUserName} onClose={()=>setShowUserSettings(false)}/>}
-      <div className="main-content" style={{flex:1,overflow:"auto",padding:"32px 36px"}}>
+      <div className="main-content" style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"32px 36px",WebkitOverflowScrolling:"touch"}}>
         {view==="dashboard"&&<Dashboard data={data} setView={setView} setData={setData} onSave={onSave}/>}
         {view==="calendar"  &&<CalendarView data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="cases"    &&<CaseList  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
