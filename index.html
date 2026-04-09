@@ -1768,63 +1768,25 @@ function CalendarView({data,setData,onSave,onDelete}){
   const initDone=useRef(false);
 
   // 載入 Google 日曆事件
-  // Google Calendar API 設定
-  // 請至 https://console.cloud.google.com 建立專案並取得 OAuth Client ID
-  const GCAL_CLIENT_ID = localStorage.getItem("gcal_client_id")||"";
-  const GCAL_SCOPES = "https://www.googleapis.com/auth/calendar.readonly";
 
-  const initGcalApi=()=>new Promise((resolve,reject)=>{
-    if(typeof gapi==="undefined"){reject("Google API 未載入");return;}
-    gapi.load("client",async()=>{
-      try{
-        await gapi.client.init({discoveryDocs:["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"]});
-        resolve();
-      }catch(e){reject(e);}
-    });
-  });
 
-  const signInGcal=()=>new Promise((resolve,reject)=>{
-    if(typeof google==="undefined"){reject("Google Identity 未載入");return;}
-    const client=google.accounts.oauth2.initTokenClient({
-      client_id:GCAL_CLIENT_ID,
-      scope:GCAL_SCOPES,
-      callback:(resp)=>{
-        if(resp.error){reject(resp.error);}
-        else resolve(resp.access_token);
-      }
-    });
-    client.requestAccessToken();
-  });
 
   const fetchGcal=async()=>{
     if(!gcalEnabled)return;
-    if(!GCAL_CLIENT_ID){
-      setGcalError("請先設定 Google Client ID（點齒輪圖示）");
-      return;
-    }
+    const icalUrl=localStorage.getItem("gcal_ical_url")||"";
+    if(!icalUrl){setGcalError("請先在「⚙ 用戶設定」填入 iCal 網址");return;}
     setGcalLoading(true);setGcalError(null);
     try{
-      await initGcalApi();
-      const token=await signInGcal();
-      const timeMin=new Date(cur.y,cur.m,1).toISOString();
-      const timeMax=new Date(cur.y,cur.m+1,0,23,59,59).toISOString();
-      const resp=await gapi.client.request({
-        path:"https://www.googleapis.com/calendar/v3/calendars/primary/events",
-        params:{timeMin,timeMax,singleEvents:true,orderBy:"startTime",maxResults:100},
-        headers:{Authorization:"Bearer "+token}
-      });
-      const items=resp.result.items||[];
-      const events=items.map(e=>({
-        title:e.summary||"（無標題）",
-        date:(e.start?.dateTime||e.start?.date||"").slice(0,10),
-        timeStart:e.start?.dateTime?e.start.dateTime.slice(11,16):"",
-        timeEnd:e.end?.dateTime?e.end.dateTime.slice(11,16):"",
-        description:e.description||""
-      })).filter(e=>e.date);
-      setGcalEvents(events);
+      const res=await fetch("https://corsproxy.io/?"+encodeURIComponent(icalUrl));
+      const text=await res.text();
+      const events=parseIcal(text);
+      const pad=n=>String(n).padStart(2,"0");
+      const monthStr=`${cur.y}-${pad(cur.m+1)}`;
+      setGcalEvents(events.filter(e=>e.date.startsWith(monthStr)));
+      setGcalError(null);
     }catch(e){
-      console.error("GCal error:",e);
-      setGcalError("無法載入 Google 日曆，請重新授權");
+      console.error("GCal iCal error:",e);
+      setGcalError("無法載入 Google 日曆，請確認 iCal 網址正確");
     }finally{setGcalLoading(false);}
   };
 
