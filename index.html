@@ -1985,27 +1985,27 @@ function CalendarView({data,setData,onSave,onDelete}){
                   const gEvts=gcalOn(ds);
                   const allEvts=[...localEvts.map(e=>({...e,_src:"local"})),...gEvts.map(e=>({...e,_src:"gcal"}))];
                   const shown=allEvts.slice(0,3);
-                  const rest=allEvts.length-shown.length+(vis.length>0?1:0);
+                  const restN=allEvts.length-shown.length+(vis.length>0&&allEvts.length<3?0:vis.length>0?1:0);
                   return(
                     <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                      {shown.map((e,idx)=>e._src==="gcal"?(
+                      {shown.map((ev,idx)=>ev._src==="gcal"?(
                         <div key={"g"+idx} style={{borderRadius:3,background:"#4285F4",
                           padding:"3px 6px",fontSize:12,color:"#fff",fontWeight:500,
                           overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"18px"}}>
-                          {e.title}
+                          {ev.title}
                         </div>
                       ):(
-                        <div key={e.id} style={{borderRadius:3,background:EVT_COLORS[e.type]||C.muted,
+                        <div key={ev.id} style={{borderRadius:3,background:EVT_COLORS[ev.type]||C.muted,
                           padding:"3px 6px",fontSize:12,color:"#fff",fontWeight:600,
                           overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:"18px"}}>
-                          {e.title}
+                          {ev.title}
                         </div>
                       ))}
-                      {allEvts.length<=3&&vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"2px 5px",fontSize:11,color:"#fff",fontWeight:600,lineHeight:"16px"}}>預排訪視</div>}
-                      {rest>0&&<div
-                        onClick={e=>{e.stopPropagation();setSel(ds);setTimeout(()=>document.getElementById("cal-detail")?.scrollIntoView({behavior:"smooth",block:"start"}),150);}}
+                      {allEvts.length<3&&vis.length>0&&<div style={{borderRadius:3,background:"#AAB8C2",padding:"3px 6px",fontSize:12,color:"#fff",fontWeight:600,lineHeight:"18px"}}>預排訪視</div>}
+                      {restN>0&&<div
+                        onClick={ev=>{ev.stopPropagation();setSel(ds);setTimeout(()=>document.getElementById("cal-detail")?.scrollIntoView({behavior:"smooth",block:"start"}),150);}}
                         style={{fontSize:11,color:C.primary,lineHeight:"18px",fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>
-                        還有 {rest} 個
+                        還有 {restN} 個
                       </div>}
                     </div>
                   );
