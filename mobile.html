@@ -276,15 +276,16 @@ function renderQuick(){
 
         <div class="field">
           <label>聯繫對象</label>
-          <div class="row2">
-            <select onchange="qf('contactPersonType',this.value)">
-              <option value="">選擇類型...</option>
-              <option ${quickForm.contactPersonType==='案主/家屬'?'selected':''}>案主/家屬</option>
-              <option ${quickForm.contactPersonType==='資源聯繫單位'?'selected':''}>資源聯繫單位</option>
-              <option ${quickForm.contactPersonType==='其他'?'selected':''}>其他</option>
-            </select>
-            ${quickForm.contactPersonType?`<input type="text" value="${quickForm.contactPerson}" placeholder="${quickForm.contactPersonType==='案主/家屬'?'姓名或關係':'單位名稱'}" onchange="qf('contactPerson',this.value)">`:'<div></div>'}
-          </div>
+          <select onchange="qf('contactPersonType',this.value);renderQuick()">
+            <option value="">選擇類型...</option>
+            <option ${quickForm.contactPersonType==='案主/家屬'?'selected':''}>案主/家屬</option>
+            <option ${quickForm.contactPersonType==='資源聯繫單位'?'selected':''}>資源聯繫單位</option>
+            <option ${quickForm.contactPersonType==='其他'?'selected':''}>其他</option>
+          </select>
+          ${quickForm.contactPersonType?`
+          <input type="text" style="margin-top:8px" value="${quickForm.contactPerson}"
+            placeholder="${quickForm.contactPersonType==='案主/家屬'?'輸入姓名或關係（如：案主、兒子）':quickForm.contactPersonType==='資源聯繫單位'?'輸入單位名稱':'備註說明'}"
+            oninput="qf('contactPerson',this.value)">`:''}
         </div>
 
         <div class="field">
