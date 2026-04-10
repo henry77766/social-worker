@@ -1180,11 +1180,38 @@ function CaseList({data,setData,onSave,onDelete}){
     else{setSelectedIds(new Set(filtered.map(c=>c.id)));}
   };
   const handleImport=async(imported)=>{
-    setData(d=>({...d,cases:[...d.cases,...imported]}));
-    for(const c of imported)await onSave("cases",c);
+    let addCount=0,updateCount=0;
+    const updatedCases=[...data.cases];
+    for(const c of imported){
+      // 以身分證字號比對
+      const idNo=(c.idNo||"").trim().toUpperCase();
+      const existIdx=idNo?updatedCases.findIndex(x=>(x.idNo||"").trim().toUpperCase()===idNo):-1;
+      if(existIdx>=0){
+        // 更新：保留原 id，合併其他欄位（空值不覆蓋）
+        const merged={...updatedCases[existIdx]};
+        Object.keys(c).forEach(k=>{
+          if(k==="id")return;
+          if(c[k]!==undefined&&c[k]!==null&&String(c[k]).trim()!==""){
+            merged[k]=c[k];
+          }
+        });
+        updatedCases[existIdx]=merged;
+        await onSave("cases",merged);
+        updateCount++;
+      }else{
+        // 新增
+        updatedCases.push(c);
+        await onSave("cases",c);
+        addCount++;
+      }
+    }
+    setData(d=>({...d,cases:updatedCases}));
     setShowImport(false);
-    setImportMsg(`✅ 成功匯入 ${imported.length} 筆個案！`);
-    setTimeout(()=>setImportMsg(null),5000);
+    const msg=[];
+    if(updateCount>0)msg.push(`更新 ${updateCount} 筆`);
+    if(addCount>0)msg.push(`新增 ${addCount} 筆`);
+    setImportMsg(`✅ 匯入完成：${msg.join("、")}！`);
+    setTimeout(()=>setImportMsg(null),6000);
   };
 
   const filtered=data.cases.filter(c=>(statusFilter==="all"||c.status===statusFilter)&&(c.name?.includes(search)||c.caseNo?.includes(search)||c.addr?.includes(search)||c.idNo?.includes(search)||c.disabilityType?.includes(search)));
