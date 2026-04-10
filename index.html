@@ -100,7 +100,6 @@ const FIREBASE_CONFIG = {
     }
     .grid-2col{grid-template-columns:1fr!important;}
     .stat-row>div{min-width:calc(50% - 7px)!important;}
-    .main-content{padding-bottom:80px!important;}
   }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   .cal-event-bar { font-size: 12px !important; }
@@ -2786,7 +2785,7 @@ function App(){
           }catch{}
           // 嘗試搬移舊資料（只在第一次登入時執行）
           const migrated=await migrateOldData();
-          if(migrated)console.log("✅ 舊資料搬移完成");
+          if(migrated)
           // 一次性載入靜態資料
           const [cases,visits,resources,diary,levelHistory]=await Promise.all([
             fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("levelHistory")
