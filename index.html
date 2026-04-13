@@ -587,7 +587,7 @@ function ExcelImporter({onImport,onClose}){
 
 // ── DASHBOARD ───────────────────────────────────────────────────
 function QuickRecordPanel({data,setData,onSave}){
-  const blank={date:toDay(),caseId:"",contactPerson:"",contactMethod:"電訪",content:"",contactCount:"1",resourceUnit:""};
+  const blank={date:toDay(),caseId:"",contactPerson:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:""};
   const [form,setForm]=useState(blank);
   const [saved,setSaved]=useState(false);
   const [caseSearch,setCaseSearch]=useState("");
@@ -2173,7 +2173,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
 
-  const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",content:""};
+  const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",serviceCount:"1",content:""};
   const [showAdd,setShowAdd]=useState(false);
   const [addRec,setAddRec]=useState(blank);
   const [editId,setEditId]=useState(null);
@@ -2289,7 +2289,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
       {records.length>0&&(()=>{
         const byMethod={};
         records.forEach(r=>{byMethod[r.contactMethod]=(byMethod[r.contactMethod]||0)+parseInt(r.contactCount||1);});
-        const totalCount=records.reduce((s,r)=>s+parseInt(r.contactCount||1),0);
+        const totalCount=records.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
         return(
           <div style={{display:"flex",gap:12,padding:"12px 28px",background:"#F8F5F0",borderBottom:`1px solid ${C.border}`,flexWrap:"wrap",alignItems:"center"}}>
             <span style={{fontSize:12,color:C.muted,fontWeight:600}}>聯繫統計：</span>
@@ -2432,7 +2432,7 @@ function MonthlyReport({data,setData,onSave}){
     });
     // 加統計列
     rows.push([]);
-    rows.push(["統計","聯繫筆數",recs.length,"服務人次",recs.reduce((s,r)=>s+parseInt(r.contactCount||1),0)]);
+    rows.push(["統計","聯繫筆數",recs.length,"服務人次",recs.reduce((s,r)=>s+parseInt(r.serviceCount||1),0)]);
     const ws=XLSX.utils.aoa_to_sheet(rows);
     // 欄寬
     ws["!cols"]=[{wch:12},{wch:10},{wch:14},{wch:16},{wch:18},{wch:10},{wch:6},{wch:40}];
@@ -2460,7 +2460,7 @@ function MonthlyReport({data,setData,onSave}){
   const caseNo=id=>data.cases.find(c=>c.id===id)?.caseNo||"";
 
   // 統計
-  const totalCount=records.reduce((s,r)=>s+parseInt(r.contactCount||1),0);
+  const totalCount=records.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
   const byMethod={};
   records.forEach(r=>{
     const m=r.contactMethod||"其他";
@@ -2602,7 +2602,7 @@ function MonthlyReport({data,setData,onSave}){
             ))}
             {(()=>{
               const shown=filterMethod?records.filter(r=>r.contactMethod===filterMethod):records;
-              const shownCount=shown.reduce((s,r)=>s+parseInt(r.contactCount||1),0);
+              const shownCount=shown.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
               const shownCases=new Set(shown.map(r=>r.caseId)).size;
               return(
                 <div style={{padding:"12px 20px",background:C.cardAlt,borderTop:`2px solid ${C.border}`,fontSize:12,color:C.muted,display:"flex",gap:20,flexWrap:"wrap"}}>
