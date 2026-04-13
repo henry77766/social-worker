@@ -1194,7 +1194,7 @@ function CaseList({data,setData,onSave,onDelete}){
     const msg=[];
     if(updateCount>0)msg.push(`更新 ${updateCount} 筆`);
     if(addCount>0)msg.push(`新增 ${addCount} 筆`);
-    setImportMsg(`✅ 匯入完成：${msg.join("、")}！`);
+    setImportMsg("✅ 匯入完成："+msg.join("、")+"！");
     setTimeout(()=>setImportMsg(null),6000);
   };
 
@@ -2808,7 +2808,7 @@ function App(){
 
   const handleLogout=async()=>{
     if(!confirm("確定要登出嗎？"))return;
-    await (window._unsubFirestore||[]).forEach(fn=>fn());window._unsubFirestore=[];firebase.auth().signOut();
+    (window._unsubFirestore||[]).forEach(fn=>fn());window._unsubFirestore=[];firebase.auth().signOut();
     setReady(false);
   };
 
