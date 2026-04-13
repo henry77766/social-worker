@@ -914,19 +914,11 @@ function CaseEditModal({caseData, onSave, onClose}){
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
     .sort((a,b)=>{
-    // 主排序：日期降序（新的在上）
     const d=(b.date||"").localeCompare(a.date||"");
     if(d!==0)return d;
-    // 同一天：用 createdAt 或從 id 還原時間戳
-    const getTs=(r)=>{
-      if(r.createdAt)return r.createdAt;
-      if(r.id&&r.id.length>=8){
-        const ts=parseInt(r.id.slice(-8),36);
-        if(ts>1000000000000)return new Date(ts).toISOString();
-      }
-      return "";
-    };
-    return getTs(b).localeCompare(getTs(a));
+    const ta=a.createdAt||(a.id&&parseInt(a.id.slice(-8),36)>1000000000000?new Date(parseInt(a.id.slice(-8),36)).toISOString():"");
+    const tb=b.createdAt||(b.id&&parseInt(b.id.slice(-8),36)>1000000000000?new Date(parseInt(b.id.slice(-8),36)).toISOString():"");
+    return tb.localeCompare(ta);
   });
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
   const Section=({title,children})=>(
@@ -2191,19 +2183,11 @@ const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A
 function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
     .sort((a,b)=>{
-    // 主排序：日期降序（新的在上）
     const d=(b.date||"").localeCompare(a.date||"");
     if(d!==0)return d;
-    // 同一天：用 createdAt 或從 id 還原時間戳
-    const getTs=(r)=>{
-      if(r.createdAt)return r.createdAt;
-      if(r.id&&r.id.length>=8){
-        const ts=parseInt(r.id.slice(-8),36);
-        if(ts>1000000000000)return new Date(ts).toISOString();
-      }
-      return "";
-    };
-    return getTs(b).localeCompare(getTs(a));
+    const ta=a.createdAt||(a.id&&parseInt(a.id.slice(-8),36)>1000000000000?new Date(parseInt(a.id.slice(-8),36)).toISOString():"");
+    const tb=b.createdAt||(b.id&&parseInt(b.id.slice(-8),36)>1000000000000?new Date(parseInt(b.id.slice(-8),36)).toISOString():"");
+    return tb.localeCompare(ta);
   });
 
   const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",content:""};
