@@ -2732,7 +2732,7 @@ function App(){
           }catch{}
           // 嘗試搬移舊資料（只在第一次登入時執行）
           const migrated=await migrateOldData();
-          if(migrated)
+          if(migrated)console.log("migrated");
           // 一次性載入靜態資料
           const [cases,visits,resources,diary,levelHistory]=await Promise.all([
             fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("levelHistory")
