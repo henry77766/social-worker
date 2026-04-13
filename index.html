@@ -913,7 +913,7 @@ function CaseEditModal({caseData, onSave, onClose}){
 // ── CASE VIEW MODAL ──────────────────────────────────────────────
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
   const Section=({title,children})=>(
     <div style={{marginBottom:20}}>
@@ -1621,7 +1621,7 @@ function DiaryLog({data,setData,onSave,onDelete}){
     setSaved(true);setTimeout(()=>setSaved(false),2000);
   };
   const del=async()=>{if(!confirm("確定刪除？"))return;setData(d=>({...d,diary:d.diary.filter(x=>x.date!==date)}));if(existing)await onDelete("diary",existing.id);setContent("");};
-  const sorted=[...data.diary].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+  const sorted=[...data.diary].sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   return(
     <div>
       <H1>工作日誌</H1>
@@ -2171,7 +2171,7 @@ const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A
 
 function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
 
   const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",content:""};
   const [showAdd,setShowAdd]=useState(false);
@@ -2453,7 +2453,7 @@ function MonthlyReport({data,setData,onSave}){
   // 篩選該月份的聯繫紀錄
   const records=(data.caseRecords||[])
     .filter(r=>r.date?.startsWith(monthStr))
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
 
   // 個案名稱對照
   const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
