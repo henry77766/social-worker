@@ -913,7 +913,7 @@ function CaseEditModal({caseData, onSave, onClose}){
 // ── CASE VIEW MODAL ──────────────────────────────────────────────
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||  (b.createdAt||"").localeCompare(a.createdAt||""));
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
   const Section=({title,children})=>(
     <div style={{marginBottom:20}}>
@@ -2171,7 +2171,7 @@ const CONTACT_METHOD_TEXT={"電訪":"#3A5FAA","家訪":"#2A7A4A","晤談":"#6A3A
 
 function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||  (b.createdAt||"").localeCompare(a.createdAt||""));
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
 
   const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",content:""};
   const [showAdd,setShowAdd]=useState(false);
