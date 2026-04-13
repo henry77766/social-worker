@@ -2541,7 +2541,7 @@ function MonthlyReport({data,setData,onSave}){
             </div>
             {(filterMethod?records.filter(r=>r.contactMethod===filterMethod):records).map((r,i)=>(
               editId===r.id
-              ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10}}>
+              ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10,borderLeft:`3px solid ${C.accent}`}}>
                   <div style={{fontSize:12,fontWeight:600,color:C.accent,marginBottom:2}}>編輯紀錄 — {caseName(r.caseId)}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px"}}>
                     <div>
@@ -2571,7 +2571,7 @@ function MonthlyReport({data,setData,onSave}){
                   </div>
                 </div>
               : <div key={r.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?C.card:C.cardAlt}}>
-                  <div onClick={()=>setViewId(v=>v===r.id?null:r.id)}
+                  <div onClick={()=>{setViewId(v=>v===r.id?null:r.id);setEditId(null);}}
                     style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,alignItems:"center",fontSize:13,cursor:"pointer"}}>
                     <span style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
                     <span style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{caseName(r.caseId)}</span>
