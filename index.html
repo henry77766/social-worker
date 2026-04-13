@@ -647,7 +647,7 @@ function QuickRecordPanel({data,setData,onSave}){
             {form.caseId&&(()=>{const c=openCases.find(x=>x.id===form.caseId);return c?<div style={{fontSize:11,color:C.primary,marginTop:4,fontWeight:500}}>✓ {c.name} {c.caseNo?`(${c.caseNo})`:""}</div>:null;})()}
           </div>
           {/* 日期 + 聯繫方式 + 次數 同一行 */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 64px",gap:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 64px 64px",gap:8}}>
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
               <input type="date" value={form.date} onChange={e=>fld("date",e.target.value)} style={inp({fontSize:13})}/>
@@ -661,6 +661,10 @@ function QuickRecordPanel({data,setData,onSave}){
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>次數</label>
               <input type="number" min="1" value={form.contactCount||"1"} onChange={e=>fld("contactCount",e.target.value)} style={inp({fontSize:13})}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>服務人次</label>
+              <input type="number" min="1" value={form.serviceCount||"1"} onChange={e=>fld("serviceCount",e.target.value)} style={inp({fontSize:13})}/>
             </div>
           </div>
           {/* 聯繫對象 - 全寬 */}
@@ -2268,8 +2272,12 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
                 </select>
               </div>
               <div>
-                <Label>次數</Label>
+                <Label>聯繫次數</Label>
                 <input type="number" min="1" value={addRec.contactCount} onChange={e=>fldAdd("contactCount",e.target.value)} style={{...inp(),width:72}}/>
+              </div>
+              <div>
+                <Label>服務人次</Label>
+                <input type="number" min="1" value={addRec.serviceCount||"1"} onChange={e=>fldAdd("serviceCount",e.target.value)} style={{...inp(),width:72}}/>
               </div>
             </div>
             <div style={{marginBottom:12}}>
@@ -2556,8 +2564,12 @@ function MonthlyReport({data,setData,onSave}){
                         </select>
                       </div>
                       <div style={{flex:1}}>
-                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>次數</label>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫次數</label>
                         <input type="number" min="1" value={editRec.contactCount||"1"} onChange={e=>fldEdit("contactCount",e.target.value)} style={{...inp(),fontSize:13}}/>
+                      </div>
+                      <div style={{flex:1}}>
+                        <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>服務人次</label>
+                        <input type="number" min="1" value={editRec.serviceCount||"1"} onChange={e=>fldEdit("serviceCount",e.target.value)} style={{...inp(),fontSize:13}}/>
                       </div>
                     </div>
                     <div style={{gridColumn:"span 2"}}>
