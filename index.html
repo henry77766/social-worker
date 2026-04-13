@@ -2453,7 +2453,7 @@ function MonthlyReport({data,setData,onSave}){
   // 篩選該月份的聯繫紀錄
   const records=(data.caseRecords||[])
     .filter(r=>r.date?.startsWith(monthStr))
-    .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    .sort((a,b)=>(b.createdAt||b.date||"")>(a.createdAt||a.date||"")?1:-1);
 
   // 個案名稱對照
   const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
