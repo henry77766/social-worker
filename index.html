@@ -1621,12 +1621,7 @@ function DiaryLog({data,setData,onSave,onDelete}){
     setSaved(true);setTimeout(()=>setSaved(false),2000);
   };
   const del=async()=>{if(!confirm("確定刪除？"))return;setData(d=>({...d,diary:d.diary.filter(x=>x.date!==date)}));if(existing)await onDelete("diary",existing.id);setContent("");};
-  const sorted=[...data.diary].sort((a,b)=>{
-    // 統一用 createdAt 排序（新的在上）
-    const ta=a.createdAt||a.date||"";
-    const tb=b.createdAt||b.date||"";
-    return tb.localeCompare(ta);
-  });
+  const sorted=[...data.diary].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
   return(
     <div>
       <H1>工作日誌</H1>
@@ -2458,12 +2453,7 @@ function MonthlyReport({data,setData,onSave}){
   // 篩選該月份的聯繫紀錄
   const records=(data.caseRecords||[])
     .filter(r=>r.date?.startsWith(monthStr))
-    .sort((a,b)=>{
-      // 統一用 createdAt 排序（新的在上）
-      const ta=a.createdAt||a.date||"";
-      const tb=b.createdAt||b.date||"";
-      return tb.localeCompare(ta);
-    });
+    .sort((a,b)=>(b.date||"").localeCompare(a.date||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
 
   // 個案名稱對照
   const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
