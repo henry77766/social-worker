@@ -587,7 +587,7 @@ function ExcelImporter({onImport,onClose}){
 
 // ── DASHBOARD ───────────────────────────────────────────────────
 function QuickRecordPanel({data,setData,onSave}){
-  const blank={date:toDay(),caseId:"",contactPerson:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:""};
+  const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:""};
   const [form,setForm]=useState(blank);
   const [saved,setSaved]=useState(false);
   const [caseSearch,setCaseSearch]=useState("");
@@ -667,21 +667,48 @@ function QuickRecordPanel({data,setData,onSave}){
               <input type="number" min="1" value={form.serviceCount||"1"} onChange={e=>fld("serviceCount",e.target.value)} style={inp({fontSize:13})}/>
             </div>
           </div>
-          {/* 聯繫對象 - 全寬 */}
+          {/* 聯繫對象 - 多選標籤 */}
           <div>
-            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫對象</label>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <select value={form.contactPersonType||""} onChange={e=>fld("contactPersonType",e.target.value)} style={inp({fontSize:13})}>
-                <option value="">選擇類型...</option>
-                <option value="案主/家屬">案主／家屬</option>
-                <option value="資源聯繫單位">資源聯繫單位</option>
-                <option value="其他">其他</option>
-              </select>
-              {form.contactPersonType&&(
-                <input value={form.contactPerson} onChange={e=>fld("contactPerson",e.target.value)}
-                  placeholder={form.contactPersonType==="案主/家屬"?"姓名或關係":form.contactPersonType==="資源聯繫單位"?"單位名稱":"備註"}
-                  style={inp({fontSize:13})}/>
-              )}
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>
+              聯繫對象
+              <span style={{color:C.primary,marginLeft:6,fontWeight:400,fontSize:10}}>可新增多個</span>
+            </label>
+            {/* 已新增的標籤列表 */}
+            {(form.contactPersons||[]).length>0&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                {(form.contactPersons||[]).map((p,pi)=>(
+                  <div key={pi} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"#EEF7F3",border:`1px solid ${C.primary}`,fontSize:12}}>
+                    <span style={{color:C.muted,fontSize:11}}>{p.type}</span>
+                    {p.name&&<span style={{color:C.text,fontWeight:600}}>{p.name}</span>}
+                    <button onClick={()=>fld("contactPersons",(form.contactPersons||[]).filter((_,i)=>i!==pi))}
+                      style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:0,lineHeight:1,marginLeft:2}}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* 新增一組 */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
+              <div>
+                <select id="q-ptype-new" style={inp({fontSize:13})}>
+                  <option value="">選擇類型...</option>
+                  <option value="案主/家屬">案主／家屬</option>
+                  <option value="資源聯繫單位">資源聯繫單位</option>
+                  <option value="其他">其他</option>
+                </select>
+              </div>
+              <div>
+                <input id="q-pname-new" placeholder="姓名或單位名稱" style={inp({fontSize:13})}/>
+              </div>
+              <button onClick={()=>{
+                const t=document.getElementById("q-ptype-new")?.value;
+                const n=document.getElementById("q-pname-new")?.value||"";
+                if(!t)return;
+                fld("contactPersons",[...(form.contactPersons||[]),{type:t,name:n}]);
+                document.getElementById("q-ptype-new").value="";
+                document.getElementById("q-pname-new").value="";
+              }} style={{padding:"8px 12px",borderRadius:8,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:12,whiteSpace:"nowrap",height:38}}>
+                ＋新增
+              </button>
             </div>
           </div>
           {/* 內容 - 全寬 */}
@@ -2587,7 +2614,7 @@ function MonthlyReport({data,setData,onSave}){
                     style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,alignItems:"center",fontSize:13,cursor:"pointer"}}>
                     <span style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
                     <span style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{caseName(r.caseId)}</span>
-                    <span style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.contactPersonType?`${r.contactPersonType}${r.contactPerson?" "+r.contactPerson:""}`:r.contactPerson||"—"}</span>
+                    <span style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(r.contactPersons&&r.contactPersons.length>0)?r.contactPersons.map(p=>p.type+(p.name?" "+p.name:"")).join("、"):(r.contactPersonType?r.contactPersonType+(r.contactPerson?" "+r.contactPerson:""):r.contactPerson||"—")}</span>
                     <span style={{fontSize:11,whiteSpace:"nowrap"}}>
                       <span style={{padding:"2px 7px",borderRadius:20,background:"#EEF7F3",color:C.primary,fontWeight:600}}>{r.contactMethod||"—"}</span>
                       <span style={{color:C.muted,marginLeft:4}}>{"x"}{r.contactCount||1}</span>
@@ -2603,7 +2630,7 @@ function MonthlyReport({data,setData,onSave}){
                       <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:8,fontSize:12,color:C.muted}}>
                         <span>{"日期: "+fmtDate(r.date)}</span>
                         <span>{"個案: "+caseName(r.caseId)}</span>
-                        {r.contactPersonType&&<span>{r.contactPersonType+(r.contactPerson?" "+r.contactPerson:"")}</span>}
+                        {(r.contactPersons&&r.contactPersons.length>0)?r.contactPersons.map((p,pi)=><span key={pi}>{p.type+(p.name?" "+p.name:"")}</span>):(r.contactPersonType&&<span>{r.contactPersonType+(r.contactPerson?" "+r.contactPerson:"")}</span>)}
                         <span style={{padding:"1px 8px",borderRadius:20,background:"#EEF7F3",color:C.primary,fontWeight:600}}>{r.contactMethod}</span>
                         <span>{"x"+(r.contactCount||1)}</span>
                       </div>
