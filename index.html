@@ -692,7 +692,7 @@ function QuickRecordPanel({data,setData,onSave}){
             {/* 新增一組 */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
               <div>
-                <select id="q-ptype-new" style={inp({fontSize:13})}>
+                <select id="q-ptype-new" onChange={()=>setTimeout(()=>document.getElementById("q-pname-new")?.focus(),50)} style={inp({fontSize:13})}>
                   <option value="">選擇類型...</option>
                   <option value="本人">本人</option>
                   <option value="同住家屬">同住家屬</option>
@@ -704,7 +704,7 @@ function QuickRecordPanel({data,setData,onSave}){
                 </select>
               </div>
               <div>
-                <input id="q-pname-new" placeholder="姓名或單位名稱" style={inp({fontSize:13})}/>
+                <input id="q-pname-new" placeholder="姓名或單位名稱" style={inp({fontSize:13})} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();const t=document.getElementById("q-ptype-new")?.value;const n=e.target.value||"";if(!t)return;fld("contactPersons",[...(form.contactPersons||[]),{type:t,name:n}]);document.getElementById("q-ptype-new").value="";e.target.value="";}}}/>
               </div>
               <button onClick={()=>{
                 const t=document.getElementById("q-ptype-new")?.value;
@@ -2507,42 +2507,31 @@ function MonthlyReport({data,setData,onSave}){
     XLSX.writeFile(wb,`月服務報表_民${rocYear}年${MONTH_NAMES[month-1]}.xlsx`);
   };
 
-  // ── 匯出政府月報表格式 ──────────────────────────────────────────
+  // ── 匯出政府月報表格式（完整欄位）──────────────────────────────
   const exportGovTable=()=>{
-    // 服務方式對應
     const methodMap=(m)=>({
       家訪:"訪視會談1-119分",外訪:"訪視會談1-119分",晤談:"訪視會談1-119分",陪同:"訪視會談1-119分",
-      電訪:"電話1-9分",
-      簡訊:"其他",代辦:"其他",
-      個研:"研討協條",
-      函件:"關懷服務(郵寄)",
+      電訪:"電話1-9分",簡訊:"其他",代辦:"其他",個研:"研討協條",函件:"公文或函件",
     }[m]||"其他");
-    // 提供服務種類對應
     const serviceTypeMap=(m)=>({
       家訪:"關懷服務(面談)",外訪:"關懷服務(面談)",晤談:"關懷服務(面談)",陪同:"關懷服務(面談)",
-      電訪:"關懷服務(電訪)",
-      函件:"關懷服務(郵寄)",
+      電訪:"關懷服務(電訪)",函件:"關懷服務(郵寄)",
     }[m]||"其他");
-    // 服務地點對應
-    const locationMap=(l)=>({
-      本機構:"本機構",案家:"案家",外機構:"外機構",其他:"其他"
-    }[l]||"");
-    // 聯繫對象對應
-    const personTypes=["本人","同住家屬","親友","專業團隊","機構","鄰居","其他"];
-    // 服務方式欄位
-    const methodCols=["訪視會談1-119分","訪視會談120分以上","電話1-9分","電話10-19分","電話20分以上","公文或函件","研討協條","其他"];
-    // 服務地點欄位
     const locationCols=["本機構","案家","外機構","其他"];
-    // 提供服務種類欄位
+    const methodCols=["訪視會談1-119分","訪視會談120分以上","電話1-9分","電話10-19分","電話20分以上","公文或函件","研討協條","其他"];
+    const personTypes=["本人","同住家屬","親友","專業團隊","機構","鄰居","其他"];
     const serviceTypeCols=["活動資訊","物資","關懷服務(面談)","關懷服務(電訪)","關懷服務(郵寄)","其他"];
 
-    // 表頭
-    const header=["身分證字號","提供服務日期","主責社工",
-      ...methodCols.map(c=>"服務方式-"+c),
-      ...locationCols.map(c=>"服務地點-"+c),
-      ...personTypes.map(c=>"聯繫對象-"+c),
-      "撰寫個案紀錄-個案紀錄",
-      ...serviceTypeCols.map(c=>"提供服務種類-"+c),
+    // 完整表頭（對應原始表格所有45欄）
+    const header=[
+      "身分證字號","提供服務日期","案號","姓名","性別","主責社工",
+      "個案等級異動前","個案等級異動後","重複派案","開案新增","開案舊有","開案結案",
+      "服務類型短期","服務類型輔導","服務類型追蹤",
+      ...methodCols.map(c=>"服務方式"+c),
+      ...locationCols.map(c=>"服務地點"+c),
+      ...personTypes.map(c=>"聯繫對象"+c),
+      "撰寫個案紀錄初評表","撰寫個案紀錄個摘表","撰寫個案紀錄需求評估","撰寫個案紀錄個案紀錄",
+      ...serviceTypeCols.map(c=>"提供服務種類"+c),
       "提供內容說明"
     ];
 
@@ -2554,36 +2543,40 @@ function MonthlyReport({data,setData,onSave}){
       const c=data.cases.find(x=>x.id===r.caseId);
       const method=methodMap(r.contactMethod||"");
       const svcType=serviceTypeMap(r.contactMethod||"");
-      const loc=locationMap(r.serviceLocation||"");
-
-      // 取得聯繫對象清單
+      const loc=r.serviceLocation||"";
       const persons=(r.contactPersons||[]).map(p=>p.type);
-      // 相容舊資料
-      if(persons.length===0&&r.contactPersonType){
-        persons.push(r.contactPersonType);
-      }
+      if(persons.length===0&&r.contactPersonType)persons.push(r.contactPersonType);
 
       rows.push([
-        c?.idNo||"",
-        r.date||"",
-        "莊子昂",
+        c?.idNo||"",       // 身分證字號
+        r.date||"",        // 提供服務日期
+        "",                // 案號（公式自動帶入）
+        "",                // 姓名（公式自動帶入）
+        "",                // 性別
+        "莊子昂",           // 主責社工
+        "","","","","","", // 個案等級異動前後、派案、開案
+        "","","",          // 服務類型
         ...methodCols.map(col=>col===method?"1":""),
         ...locationCols.map(col=>col===loc?"1":""),
         ...personTypes.map(pt=>persons.includes(pt)?"1":""),
-        "1",
+        "","","",          // 撰寫個案紀錄：初評表、個摘表、需求評估
+        "1",               // 撰寫個案紀錄：個案紀錄
         ...serviceTypeCols.map(col=>col===svcType?"1":""),
-        r.content||""
+        r.content||""      // 提供內容說明
       ]);
     });
 
     const ws=XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"]=[{wch:14},{wch:14},{wch:10},
-      ...methodCols.map(()=>({wch:10})),
+    ws["!cols"]=[
+      {wch:14},{wch:14},{wch:10},{wch:10},{wch:6},{wch:10},
+      {wch:8},{wch:8},{wch:6},{wch:6},{wch:6},{wch:6},
+      {wch:6},{wch:6},{wch:6},
+      ...methodCols.map(()=>({wch:8})),
       ...locationCols.map(()=>({wch:8})),
       ...personTypes.map(()=>({wch:8})),
-      {wch:8},
-      ...serviceTypeCols.map(()=>({wch:12})),
-      {wch:40}
+      {wch:6},{wch:6},{wch:6},{wch:8},
+      ...serviceTypeCols.map(()=>({wch:10})),
+      {wch:50}
     ];
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,"月報表");
@@ -2737,7 +2730,7 @@ function MonthlyReport({data,setData,onSave}){
                         </div>
                       )}
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
-                        <select id="mr-edit-ptype" style={{...inp(),fontSize:13}}>
+                        <select id="mr-edit-ptype" onChange={()=>setTimeout(()=>document.getElementById("mr-edit-pname")?.focus(),50)} style={{...inp(),fontSize:13}}>
                           <option value="">選擇類型...</option>
                           <option value="本人">本人</option>
                           <option value="同住家屬">同住家屬</option>
@@ -2747,7 +2740,7 @@ function MonthlyReport({data,setData,onSave}){
                           <option value="鄰居">鄰居</option>
                           <option value="其他">其他</option>
                         </select>
-                        <input id="mr-edit-pname" placeholder="姓名或單位名稱" style={{...inp(),fontSize:13}}/>
+                        <input id="mr-edit-pname" placeholder="姓名或單位名稱" style={{...inp(),fontSize:13}} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();const t=document.getElementById("mr-edit-ptype")?.value;const n=e.target.value||"";if(!t)return;fldEdit("contactPersons",[...(editRec.contactPersons||[]),{type:t,name:n}]);document.getElementById("mr-edit-ptype").value="";e.target.value="";}}}/>
                         <button onClick={()=>{
                           const t=document.getElementById("mr-edit-ptype")?.value;
                           const n=document.getElementById("mr-edit-pname")?.value||"";
