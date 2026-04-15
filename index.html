@@ -2629,10 +2629,7 @@ function MonthlyReport({data,setData,onSave}){
             民{rocYear}年 {MONTH_NAMES[month-1]}
           </span>
           <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>›</button>
-          <button onClick={exportExcel}
-            style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#2A7A4A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6,marginLeft:8}}>
-            📥 匯出 Excel
-          </button>
+
           <button onClick={exportGovTable}
             style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#4A6E8A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             📋 匯出月報表
