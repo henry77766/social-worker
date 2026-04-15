@@ -2549,7 +2549,7 @@ function MonthlyReport({data,setData,onSave}){
 
       rows.push([
         c?.idNo||"",       // 身分證字號
-        r.date||"",        // 提供服務日期
+        (()=>{const d=r.date||"";if(!d)return"";const[y,m,day]=d.split("-");return`${parseInt(y)-1911}年${m}月${day}日`;})(),
         "",                // 案號（公式自動帶入）
         "",                // 姓名（公式自動帶入）
         "",                // 性別
