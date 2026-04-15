@@ -224,7 +224,7 @@ function renderTab(tab){
 }
 
 // ── QUICK RECORD ──────────────────────────────────────────────
-let quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
+let quickForm={date:toDay(),caseId:'',contactPersons:[],contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',serviceCount:'1',serviceLocation:'',content:'',resourceUnit:''};
 let caseSearch='',showAutoComplete=false;
 
 function renderQuick(){
@@ -275,20 +275,47 @@ function renderQuick(){
             <label>次數</label>
             <input type="number" id="q-count" value="${quickForm.contactCount}" min="1" onchange="qf('contactCount',this.value)">
           </div>
+          <div>
+            <label>服務人次</label>
+            <input type="number" id="q-scount" value="${quickForm.serviceCount||1}" min="1" onchange="qf('serviceCount',this.value)">
+          </div>
         </div>
 
         <div class="field">
-          <label>聯繫對象</label>
-          <select id="q-ptype" onchange="qf('contactPersonType',this.value);renderQuick()">
-            <option value="">選擇類型...</option>
-            <option ${quickForm.contactPersonType==='案主/家屬'?'selected':''}>案主/家屬</option>
-            <option ${quickForm.contactPersonType==='資源聯繫單位'?'selected':''}>資源聯繫單位</option>
-            <option ${quickForm.contactPersonType==='其他'?'selected':''}>其他</option>
+          <label>聯繫對象 <span style="font-size:11px;color:var(--primary);font-weight:400">可新增多個</span></label>
+          ${quickForm.contactPersons.length>0?`
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+            ${quickForm.contactPersons.map((p,pi)=>`
+              <div style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;background:#EEF7F3;border:1px solid var(--primary);font-size:12px">
+                <span style="color:var(--muted);font-size:11px">${p.type}</span>
+                ${p.name?`<span style="font-weight:600">${p.name}</span>`:''}
+                <button onclick="removeContactPerson(${pi})" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:0;line-height:1;margin-left:2px">&#x2715;</button>
+              </div>`).join('')}
+          </div>`:''}
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+            <select id="q-ptype-new" onchange="setTimeout(()=>document.getElementById('q-pname-new')?.focus(),50)">
+              <option value="">選擇類型...</option>
+              <option value="本人">本人</option>
+              <option value="同住家屬">同住家屬</option>
+              <option value="親友">親友</option>
+              <option value="專業團隊">專業團隊</option>
+              <option value="機構">機構</option>
+              <option value="鄰居">鄰居</option>
+              <option value="其他">其他</option>
+            </select>
+            <input id="q-pname-new" type="text" placeholder="姓名或單位名稱" onkeydown="if(event.key==='Enter'){event.preventDefault();addContactPerson();}">
+            <button onclick="addContactPerson()" style="padding:10px 12px;border-radius:8px;border:none;background:var(--primary);color:#fff;cursor:pointer;font-size:13px;white-space:nowrap">&#xFF0B;</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>服務地點</label>
+          <select onchange="qf('serviceLocation',this.value)">
+            <option value="" ${!quickForm.serviceLocation?'selected':''}>選擇地點...</option>
+            <option value="本機構" ${quickForm.serviceLocation==='本機構'?'selected':''}>本機構</option>
+            <option value="案家" ${quickForm.serviceLocation==='案家'?'selected':''}>案家</option>
+            <option value="外機構" ${quickForm.serviceLocation==='外機構'?'selected':''}>外機構</option>
+            <option value="其他" ${quickForm.serviceLocation==='其他'?'selected':''}>其他</option>
           </select>
-          ${quickForm.contactPersonType?`
-          <input type="text" style="margin-top:8px" value="${quickForm.contactPerson}"
-            id="q-person" placeholder="${quickForm.contactPersonType==='案主/家屬'?'輸入姓名或關係（如：案主、兒子）':quickForm.contactPersonType==='資源聯繫單位'?'輸入單位名稱':'備註說明'}"
-            oninput="qf('contactPerson',this.value)">`:''}
         </div>
 
         <div class="field">
@@ -320,6 +347,19 @@ window.clearCase=function(){
   setTimeout(()=>document.getElementById('q-case-search')?.focus(),0);
 };
 
+window.addContactPerson=function(){
+  const t=document.getElementById('q-ptype-new')?.value;
+  const n=document.getElementById('q-pname-new')?.value||'';
+  if(!t)return;
+  quickForm.contactPersons=[...(quickForm.contactPersons||[]),{type:t,name:n}];
+  document.getElementById('q-ptype-new').value='';
+  document.getElementById('q-pname-new').value='';
+  renderQuick();
+};
+window.removeContactPerson=function(idx){
+  quickForm.contactPersons=(quickForm.contactPersons||[]).filter((_,i)=>i!==idx);
+  renderQuick();
+};
 window.saveQuick=async function(){
   // Read values directly from DOM at save time
   const dateVal=document.getElementById('q-date')?.value||quickForm.date;
@@ -332,8 +372,9 @@ window.saveQuick=async function(){
   if(!contentVal.trim()){toast('請填寫聯繫內容');return;}
   try{
     const rec={id:uid_(),caseId:quickForm.caseId,date:dateVal,
-      contactPersonType:personTypeVal,contactPerson:personVal,
-      contactMethod:methodVal,contactCount:countVal,
+      contactPersons:persons,contactPersonType:personTypeVal,contactPerson:personVal,
+      contactMethod:methodVal,contactCount:countVal,serviceCount:scountVal,
+      serviceLocation:serviceLocationVal,
       resourceUnit:'',content:contentVal,
       createdBy:'社工',createdDate:dateVal,createdAt:new Date().toISOString(),lastModified:dateVal};
     const {id:rid,...recData}=rec;
@@ -341,7 +382,7 @@ window.saveQuick=async function(){
     await db.collection(userCol('caseRecords')).doc(rid).set(recData);
     console.log('Save success!');
     caseRecords.push(rec);
-    quickForm={date:toDay(),caseId:'',contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',content:'',resourceUnit:''};
+    quickForm={date:toDay(),caseId:'',contactPersons:[],contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',serviceCount:'1',serviceLocation:'',content:'',resourceUnit:''};
     caseSearch='';showAutoComplete=false;
     toast('✓ 已儲存！');
     renderQuick();
