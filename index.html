@@ -587,7 +587,7 @@ function ExcelImporter({onImport,onClose}){
 
 // ── DASHBOARD ───────────────────────────────────────────────────
 function QuickRecordPanel({data,setData,onSave}){
-  const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:""};
+  const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:"",serviceLocation:""};
   const [form,setForm]=useState(blank);
   const [saved,setSaved]=useState(false);
   const [caseSearch,setCaseSearch]=useState("");
@@ -596,7 +596,10 @@ function QuickRecordPanel({data,setData,onSave}){
   const handleSave=async()=>{
     if(!form.caseId){alert("請選擇個案");return;}
     if(!form.content.trim()){alert("請填寫聯繫內容");return;}
-    const item={...form,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
+    const persons=form.contactPersons||[];
+    const derivedType=persons.length>0?persons.map(p=>p.type).join("、"):form.contactPersonType||"";
+    const derivedName=persons.length>0?persons.map(p=>p.name).filter(Boolean).join("、"):form.contactPerson||"";
+    const item={...form,contactPersonType:derivedType,contactPerson:derivedName,contactPersons:persons,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setSaved(true);
@@ -691,8 +694,12 @@ function QuickRecordPanel({data,setData,onSave}){
               <div>
                 <select id="q-ptype-new" style={inp({fontSize:13})}>
                   <option value="">選擇類型...</option>
-                  <option value="案主/家屬">案主／家屬</option>
-                  <option value="資源聯繫單位">資源聯繫單位</option>
+                  <option value="本人">本人</option>
+                  <option value="同住家屬">同住家屬</option>
+                  <option value="親友">親友</option>
+                  <option value="專業團隊">專業團隊</option>
+                  <option value="機構">機構</option>
+                  <option value="鄰居">鄰居</option>
                   <option value="其他">其他</option>
                 </select>
               </div>
@@ -710,6 +717,17 @@ function QuickRecordPanel({data,setData,onSave}){
                 ＋新增
               </button>
             </div>
+          </div>
+          {/* 服務地點 */}
+          <div>
+            <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>服務地點</label>
+            <select value={form.serviceLocation||""} onChange={e=>fld("serviceLocation",e.target.value)} style={inp({fontSize:13})}>
+              <option value="">選擇地點...</option>
+              <option value="本機構">本機構</option>
+              <option value="案家">案家</option>
+              <option value="外機構">外機構</option>
+              <option value="其他">其他</option>
+            </select>
           </div>
           {/* 內容 - 全寬 */}
           <div>
@@ -2204,7 +2222,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
 
-  const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",serviceCount:"1",content:""};
+  const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",serviceCount:"1",content:"",serviceLocation:""};
   const [showAdd,setShowAdd]=useState(false);
   const [addRec,setAddRec]=useState(blank);
   const [editId,setEditId]=useState(null);
@@ -2226,7 +2244,10 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
     setAddRec(blank);setShowAdd(false);
   };
   const handleEdit=async()=>{
-    const updated={...editRec,lastModified:toDay()};
+    const mrPersons=editRec.contactPersons||[];
+    const mrType=mrPersons.length>0?mrPersons.map(p=>p.type).join("、"):editRec.contactPersonType||"";
+    const mrName=mrPersons.length>0?mrPersons.map(p=>p.name).filter(Boolean).join("、"):editRec.contactPerson||"";
+    const updated={...editRec,contactPersons:mrPersons,contactPersonType:mrType,contactPerson:mrName,lastModified:toDay()};
     setData(d=>({...d,caseRecords:(d.caseRecords||[]).map(r=>r.id===editId?updated:r)}));
     await onSave("caseRecords",updated);
     setEditId(null);
@@ -2308,6 +2329,16 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               </div>
             </div>
             <div style={{marginBottom:12}}>
+              <Label>服務地點</Label>
+              <select value={addRec.serviceLocation||""} onChange={e=>fldAdd("serviceLocation",e.target.value)} style={inp()}>
+                <option value="">選擇地點...</option>
+                <option value="本機構">本機構</option>
+                <option value="案家">案家</option>
+                <option value="外機構">外機構</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+            <div style={{marginBottom:12}}>
               <Label>聯繫內容</Label>
               <textarea value={addRec.content} onChange={e=>fldAdd("content",e.target.value)}
                 placeholder="記錄本次聯繫的重點、狀況、後續追蹤事項…"
@@ -2376,7 +2407,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
                       <td style={{padding:"12px 14px",textAlign:"center",color:C.text,fontWeight:600}}>{r.contactCount||1}</td>
                       <td style={{padding:"12px 14px",whiteSpace:"nowrap"}}>
                         <div style={{display:"flex",gap:6}}>
-                          <button onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r});setShowAdd(false);setViewRec(null);}}
+                          <button onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r,contactPersons:r.contactPersons||[]});setShowAdd(false);setViewRec(null);}}
                             style={{padding:"4px 10px",borderRadius:6,background:"#EBF5FF",color:"#2A5FA8",border:"1px solid #C0D8F0",cursor:"pointer",fontSize:12,fontFamily:font}}>✏️</button>
                           <button onClick={e=>{e.stopPropagation();handleDel(r.id);}}
                             style={{padding:"4px 10px",borderRadius:6,background:"#FFF0F0",color:C.danger,border:"1px solid #ECC8C8",cursor:"pointer",fontSize:12,fontFamily:font}}>✕</button>
@@ -2475,6 +2506,90 @@ function MonthlyReport({data,setData,onSave}){
     XLSX.utils.book_append_sheet(wb,ws,`${rocYear}年${MONTH_NAMES[month-1]}`);
     XLSX.writeFile(wb,`月服務報表_民${rocYear}年${MONTH_NAMES[month-1]}.xlsx`);
   };
+
+  // ── 匯出政府月報表格式 ──────────────────────────────────────────
+  const exportGovTable=()=>{
+    // 服務方式對應
+    const methodMap=(m)=>({
+      家訪:"訪視會談1-119分",外訪:"訪視會談1-119分",晤談:"訪視會談1-119分",陪同:"訪視會談1-119分",
+      電訪:"電話1-9分",
+      簡訊:"其他",代辦:"其他",
+      個研:"研討協條",
+      函件:"關懷服務(郵寄)",
+    }[m]||"其他");
+    // 提供服務種類對應
+    const serviceTypeMap=(m)=>({
+      家訪:"關懷服務(面談)",外訪:"關懷服務(面談)",晤談:"關懷服務(面談)",陪同:"關懷服務(面談)",
+      電訪:"關懷服務(電訪)",
+      函件:"關懷服務(郵寄)",
+    }[m]||"其他");
+    // 服務地點對應
+    const locationMap=(l)=>({
+      本機構:"本機構",案家:"案家",外機構:"外機構",其他:"其他"
+    }[l]||"");
+    // 聯繫對象對應
+    const personTypes=["本人","同住家屬","親友","專業團隊","機構","鄰居","其他"];
+    // 服務方式欄位
+    const methodCols=["訪視會談1-119分","訪視會談120分以上","電話1-9分","電話10-19分","電話20分以上","公文或函件","研討協條","其他"];
+    // 服務地點欄位
+    const locationCols=["本機構","案家","外機構","其他"];
+    // 提供服務種類欄位
+    const serviceTypeCols=["活動資訊","物資","關懷服務(面談)","關懷服務(電訪)","關懷服務(郵寄)","其他"];
+
+    // 表頭
+    const header=["身分證字號","提供服務日期","主責社工",
+      ...methodCols.map(c=>"服務方式-"+c),
+      ...locationCols.map(c=>"服務地點-"+c),
+      ...personTypes.map(c=>"聯繫對象-"+c),
+      "撰寫個案紀錄-個案紀錄",
+      ...serviceTypeCols.map(c=>"提供服務種類-"+c),
+      "提供內容說明"
+    ];
+
+    const recs=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr))
+      .sort((a,b)=>(a.date||"")>(b.date||"")?1:-1);
+
+    const rows=[header];
+    recs.forEach(r=>{
+      const c=data.cases.find(x=>x.id===r.caseId);
+      const method=methodMap(r.contactMethod||"");
+      const svcType=serviceTypeMap(r.contactMethod||"");
+      const loc=locationMap(r.serviceLocation||"");
+
+      // 取得聯繫對象清單
+      const persons=(r.contactPersons||[]).map(p=>p.type);
+      // 相容舊資料
+      if(persons.length===0&&r.contactPersonType){
+        persons.push(r.contactPersonType);
+      }
+
+      rows.push([
+        c?.idNo||"",
+        r.date||"",
+        "莊子昂",
+        ...methodCols.map(col=>col===method?"1":""),
+        ...locationCols.map(col=>col===loc?"1":""),
+        ...personTypes.map(pt=>persons.includes(pt)?"1":""),
+        "1",
+        ...serviceTypeCols.map(col=>col===svcType?"1":""),
+        r.content||""
+      ]);
+    });
+
+    const ws=XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"]=[{wch:14},{wch:14},{wch:10},
+      ...methodCols.map(()=>({wch:10})),
+      ...locationCols.map(()=>({wch:8})),
+      ...personTypes.map(()=>({wch:8})),
+      {wch:8},
+      ...serviceTypeCols.map(()=>({wch:12})),
+      {wch:40}
+    ];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"月報表");
+    XLSX.writeFile(wb,`政府月報表_民${rocYear}年${MONTH_NAMES[month-1]}.xlsx`);
+  };
+
   const [editRec,setEditRec]=useState({});
   const fldEdit=(k,v)=>setEditRec(r=>({...r,[k]:v}));
 
@@ -2488,7 +2603,7 @@ function MonthlyReport({data,setData,onSave}){
   // 篩選該月份的聯繫紀錄
   const records=(data.caseRecords||[])
     .filter(r=>r.date?.startsWith(monthStr))
-    .sort((a,b)=>(b.createdAt||b.date||"")>(a.createdAt||a.date||"")?1:-1);
+    .sort((a,b)=>{if(b.date!==a.date)return(b.date||"")>(a.date||"")?1:-1;return(b.createdAt||"")>(a.createdAt||"")?1:(b.createdAt||"")<(a.createdAt||"")?-1:0;});
 
   // 個案名稱對照
   const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
@@ -2524,6 +2639,10 @@ function MonthlyReport({data,setData,onSave}){
           <button onClick={exportExcel}
             style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#2A7A4A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6,marginLeft:8}}>
             📥 匯出 Excel
+          </button>
+          <button onClick={exportGovTable}
+            style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#4A6E8A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            📋 匯出政府月報表
           </button>
         </div>
       </div>
@@ -2600,6 +2719,59 @@ function MonthlyReport({data,setData,onSave}){
                       </div>
                     </div>
                     <div style={{gridColumn:"span 2"}}>
+                      <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>
+                        聯繫對象
+                        <span style={{color:C.primary,marginLeft:6,fontWeight:400,fontSize:10}}>可新增多個</span>
+                      </label>
+
+                      {(editRec.contactPersons||[]).length>0&&(
+                        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                          {(editRec.contactPersons||[]).map((p,pi)=>(
+                            <div key={pi} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:20,background:"#EEF7F3",border:`1px solid ${C.primary}`,fontSize:12}}>
+                              <span style={{color:C.muted,fontSize:11}}>{p.type}</span>
+                              {p.name&&<span style={{color:C.text,fontWeight:600}}>{p.name}</span>}
+                              <button onClick={()=>fldEdit("contactPersons",(editRec.contactPersons||[]).filter((_,i)=>i!==pi))}
+                                style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:0,lineHeight:1,marginLeft:2}}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr auto",gap:8,alignItems:"end"}}>
+                        <select id="mr-edit-ptype" style={{...inp(),fontSize:13}}>
+                          <option value="">選擇類型...</option>
+                          <option value="本人">本人</option>
+                          <option value="同住家屬">同住家屬</option>
+                          <option value="親友">親友</option>
+                          <option value="專業團隊">專業團隊</option>
+                          <option value="機構">機構</option>
+                          <option value="鄰居">鄰居</option>
+                          <option value="其他">其他</option>
+                        </select>
+                        <input id="mr-edit-pname" placeholder="姓名或單位名稱" style={{...inp(),fontSize:13}}/>
+                        <button onClick={()=>{
+                          const t=document.getElementById("mr-edit-ptype")?.value;
+                          const n=document.getElementById("mr-edit-pname")?.value||"";
+                          if(!t)return;
+                          fldEdit("contactPersons",[...(editRec.contactPersons||[]),{type:t,name:n}]);
+                          document.getElementById("mr-edit-ptype").value="";
+                          document.getElementById("mr-edit-pname").value="";
+                        }} style={{padding:"8px 12px",borderRadius:8,border:"none",background:C.primary,color:"#fff",cursor:"pointer",fontSize:12,whiteSpace:"nowrap",height:38}}>
+                          ＋新增
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>服務地點</label>
+                      <select value={editRec.serviceLocation||""} onChange={e=>fldEdit("serviceLocation",e.target.value)} style={{...inp(),fontSize:13}}>
+                        <option value="">選擇地點...</option>
+                        <option value="本機構">本機構</option>
+                        <option value="案家">案家</option>
+                        <option value="外機構">外機構</option>
+                        <option value="其他">其他</option>
+                      </select>
+                    </div>
+                    <div style={{gridColumn:"span 2"}}>
                       <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫內容</label>
                       <textarea value={editRec.content||""} onChange={e=>fldEdit("content",e.target.value)} rows={3} style={{...inp(),fontSize:13,resize:"vertical",lineHeight:1.6}}/>
                     </div>
@@ -2620,7 +2792,7 @@ function MonthlyReport({data,setData,onSave}){
                       <span style={{color:C.muted,marginLeft:4}}>{"x"}{r.contactCount||1}</span>
                     </span>
                     <span style={{color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.content||"—"}</span>
-                    <button onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r});}}
+                    <button onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r,contactPersons:r.contactPersons||[]});}}
                       style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12,color:C.muted,fontFamily:font,whiteSpace:"nowrap"}}>
                       {"✏️"}
                     </button>
