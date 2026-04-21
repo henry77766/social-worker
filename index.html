@@ -454,7 +454,7 @@ const FIELD_DEFS=[
   {key:"systemLevel", label:"系統分案等級"},
   {key:"initialLevel",label:"個案起始等級"},
   {key:"visitFreq",   label:"基本頻率"},
-  {key:"changeLevel", label:"個案異動等級"},
+  {key:"changeLevel", label:"現在等級"},
   {key:"phone",           label:"本人電話"},
   {key:"phone2",          label:"備用電話"},
   {key:"emergencyContact",label:"緊急聯絡人"},
@@ -487,7 +487,7 @@ const AUTO_MATCH={
   systemLevel:   ["系統分案等級","分案等級"],
   initialLevel:  ["個案起始等級","起始等級"],
   visitFreq:     ["基本頻率","服務頻率","訪視頻率"],
-  changeLevel:   ["個案異動等級","異動等級","異動後等級"],
+  changeLevel:   ["現在等級","個案異動等級","異動等級","異動後等級"],
   note:          ["簡要服務紀錄","備註","服務紀錄","說明"],
   phone:         ["本人電話","電話","聯絡電話","手機","行動電話"],
   phone2:        ["備用電話","第二電話","電話2","電話二"],
@@ -937,7 +937,7 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="系統分案等級" field="systemLevel" value={form["systemLevel"]} onChange={fld}/>
             <FormRow label="個案起始等級" field="initialLevel" value={form["initialLevel"]} onChange={fld}/>
             <FormRow label="基本頻率" field="visitFreq" value={form["visitFreq"]} onChange={fld}/>
-            <FormRow label="個案異動等級" field="changeLevel" value={form["changeLevel"]} onChange={fld}/>
+            <FormRow label="現在等級" field="changeLevel" value={form["changeLevel"]} onChange={fld}/>
             <FormRow label="主責社工" field="mainWorker" value={form["mainWorker"]} onChange={fld}/>
             <div style={{gridColumn:"span 2"}}>
               <Label>簡要服務紀錄</Label>
@@ -1018,7 +1018,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
             <Row label="開案時間" val={fmtDate(c.openDate)}/>
             <Row label="系統分案等級" val={c.systemLevel}/>
             <Row label="個案起始等級" val={c.initialLevel}/>
-            <Row label="個案異動等級" val={c.changeLevel}/>
+            <Row label="現在等級" val={c.changeLevel}/>
             <Row label="基本頻率" val={c.visitFreq}/>
             <Row label="主責社工" val={c.mainWorker}/>
           </Section>
@@ -1032,7 +1032,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
             const hist=[...(levelHistory||[]).filter(h=>h.caseId===c.id)].sort((a,b)=>b.date.localeCompare(a.date));
             const [showAdd,setShowAdd]=useState(false);
             const [addForm,setAddForm]=useState({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
-            const LEVEL_FIELDS={"systemLevel":"系統分案等級","initialLevel":"個案起始等級","changeLevel":"個案異動等級"};
+            const LEVEL_FIELDS={"systemLevel":"系統分案等級","initialLevel":"個案起始等級","changeLevel":"現在等級"};
             const LEVEL_OPTS=["","一般","特殊","高關懷","急迫"];
             const handleAddHistory=async()=>{
               if(!addForm.to){alert("請填寫變動後等級");return;}
@@ -1470,8 +1470,7 @@ function CaseList({data,setData,onSave,onDelete}){
       <div style={{display:"flex",gap:0,marginBottom:20,background:C.cardAlt,borderRadius:10,border:`1px solid ${C.border}`,padding:4,width:"fit-content",flexWrap:"wrap"}}>
         {[
           {key:"none",       label:"不分類"},
-          {key:"initialLevel",label:"個案起始等級"},
-          {key:"changeLevel",label:"個案異動等級"},
+          {key:"changeLevel",label:"現在等級"},
           {key:"disabilityLevel",label:"障礙等級"},
         ].map(({key,label})=>(
           <button key={key} onClick={()=>setGroupBy(key)}
@@ -1531,7 +1530,7 @@ function CaseList({data,setData,onSave,onDelete}){
                   {c.addr&&<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {c.addr}</span>}
                   {(c.birthDate||c.age)&&<span>🎂 {c.birthDate?`${c.birthDate.slice(0,10)} `:""}{c.age?`${c.age}歲`:""}</span>}
                   {c.disabilityType&&<span>♿ {c.disabilityType}{c.disabilityDetail&&c.disabilityType==="多重障"?`（${c.disabilityDetail}）`:""}</span>}
-                  {c.changeLevel&&<span>📊 異動等級：{c.changeLevel}</span>}
+                  {c.changeLevel&&<span>📊 現在等級：{c.changeLevel}</span>}
                 </div>
               </div>
 
@@ -1585,7 +1584,7 @@ function CaseList({data,setData,onSave,onDelete}){
         // 分組顯示
         const labelMap={
           initialLevel:"個案起始等級",
-          changeLevel:"個案異動等級",
+          changeLevel:"現在等級",
           disabilityLevel:"障礙等級",
         };
         const groups={};
