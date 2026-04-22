@@ -754,6 +754,7 @@ function QuickRecordPanel({data,setData,onSave}){
 
 function Dashboard({data,setView,setData,onSave}){
   const openCount=data.cases.filter(c=>c.status==="開案中").length;
+  const managedCount=data.cases.filter(c=>c.status==="列管中").length;
   const mo=new Date().toISOString().slice(0,7);
   const moVisits=data.visits.filter(v=>v.date?.startsWith(mo)).length;
   const todayLog=data.diary.find(d=>d.date===toDay());
@@ -846,7 +847,7 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="姓名 *" field="name" value={form["name"]} onChange={fld}/>
             <FormRow label="案號" field="caseNo" value={form["caseNo"]} onChange={fld}/>
             <FormRow label="身分證字號" field="idNo" value={form["idNo"]} onChange={fld}/>
-                    <FormRow label="案況" field="status" value={form["status"]} onChange={fld} opts={["開案中","待評估","結案"]}/>
+                    <FormRow label="案況" field="status" value={form["status"]} onChange={fld} opts={["開案中","待評估","結案","列管中"]}/>
             <FormRow label="生理性別" field="gender" value={form["gender"]} onChange={fld} opts={["","男","女","其他"]}/>
             <div>
               <Label>出生日期</Label>
@@ -963,7 +964,7 @@ function CaseEditModal({caseData, onSave, onClose}){
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A"};
+  const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A","列管中":"#8B6DB8"};
   const Section=({title,children})=>(
     <div style={{marginBottom:20}}>
       <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>{title}</div>
@@ -1130,7 +1131,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
 }
 
 // ── CASES ───────────────────────────────────────────────────────
-const CASE_STATUS=["開案中","待評估","結案"];
+const CASE_STATUS=["開案中","待評估","結案","列管中"];
 const DISABILITY_LEVELS=["輕度","中度","重度","極重度"];
 const DISABILITY_TYPES=["","第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障"];
 
@@ -1248,7 +1249,7 @@ function CaseList({data,setData,onSave,onDelete}){
   };
 
   const filtered=data.cases.filter(c=>(statusFilter==="all"||c.status===statusFilter)&&(c.name?.includes(search)||c.caseNo?.includes(search)||c.addr?.includes(search)||c.idNo?.includes(search)||c.disabilityType?.includes(search)));
-  const stColor={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A"};
+  const stColor={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","列管中":"#8B6DB8"};
   // FRow moved outside as FormRow to prevent focus loss
 
   return(
@@ -1487,8 +1488,8 @@ function CaseList({data,setData,onSave,onDelete}){
       {(()=>{
         const CaseCard=({c})=>{
           const cVis=data.visits.filter(v=>v.caseId===c.id);
-          const stBg={"開案中":"#E8F5EE","結案":"#F0F0EE","待評估":"#EAF0F8"};
-          const stDot={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A"};
+          const stBg={"開案中":"#E8F5EE","結案":"#F0F0EE","待評估":"#EAF0F8","列管中":"#F0E8FF"};
+          const stDot={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","列管中":"#8B6DB8"};
           return(
             <div key={c.id}
               onClick={selectMode?()=>toggleSelect(c.id):undefined}
