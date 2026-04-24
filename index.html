@@ -1841,81 +1841,7 @@ function CalendarView({data,setData,onSave,onDelete}){
   const [menuId,setMenuId]=useState(null);
   const [menuPos,setMenuPos]=useState({x:0,y:0});
   const [form,setForm]=useState({title:"",type:"訪視",time:"",note:""});
-  const [gcalEvents,setGcalEvents]=useState([]);
-  const [gcalLoading,setGcalLoading]=useState(false);
-  const [gcalError,setGcalError]=useState(null);
-  const [gcalEnabled,setGcalEnabled]=useState(()=>localStorage.getItem("gcal_enabled")==="1");
   const initDone=useRef(false);
-
-  // 載入 Google 日曆事件
-
-
-
-  // 解析 iCal 格式（內嵌在函式中避免 not defined 問題）
-  const fetchGcal=async()=>{
-    if(!gcalEnabled)return;
-    const icalUrl=localStorage.getItem("gcal_ical_url")||"";
-    if(!icalUrl){setGcalError("請先在「⚙ 用戶設定」填入 iCal 網址");return;}
-    setGcalLoading(true);setGcalError(null);
-
-    // iCal 解析函式
-    const doParseIcal=(text)=>{
-      const evts=[];
-      const pad2=n=>String(n).padStart(2,"0");
-      text.split("BEGIN:VEVENT").slice(1).forEach(block=>{
-        const get=(key)=>{const m=block.match(new RegExp(key+"[^:]*:([^\r\n]+)"));return m?m[1].trim():"";};
-        const summary=get("SUMMARY").replace(/\\n/g," ").replace(/\\,/g,",");
-        const dtstart=get("DTSTART");
-        const dtend=get("DTEND");
-        const desc=get("DESCRIPTION");
-        if(!dtstart||!summary)return;
-        let date="",timeStart="",timeEnd="";
-        if(dtstart.includes("T")){
-          const raw=dtstart.replace("Z","");
-          date=raw.slice(0,4)+"-"+raw.slice(4,6)+"-"+raw.slice(6,8);
-          timeStart=raw.slice(9,11)+":"+raw.slice(11,13);
-          if(dtend.includes("T")){
-            const re=dtend.replace("Z","");
-            timeEnd=re.slice(9,11)+":"+re.slice(11,13);
-          }
-        }else{
-          date=dtstart.slice(0,4)+"-"+dtstart.slice(4,6)+"-"+dtstart.slice(6,8);
-        }
-        if(date)evts.push({title:summary,date,timeStart,timeEnd,description:desc});
-      });
-      return evts;
-    };
-
-    try{
-      // 直接 fetch iCal（公開日曆不需要 proxy）
-      const webcalUrl=icalUrl.replace("webcal://","https://");
-      const res=await fetch(webcalUrl,{mode:"cors"});
-      if(!res.ok)throw new Error("HTTP "+res.status);
-      const text=await res.text();
-      const events=doParseIcal(text);
-      const pad=n=>String(n).padStart(2,"0");
-      const monthStr=`${cur.y}-${pad(cur.m+1)}`;
-      setGcalEvents(events.filter(e=>e.date.startsWith(monthStr)));
-      setGcalError(null);
-    }catch(e){
-      // CORS 失敗時改用 proxy
-      try{
-        const webcalUrl=icalUrl.replace("webcal://","https://");
-        const res=await fetch("https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(webcalUrl));
-        const text=await res.text();
-        const events=doParseIcal(text);
-        const pad=n=>String(n).padStart(2,"0");
-        const monthStr=`${cur.y}-${pad(cur.m+1)}`;
-        setGcalEvents(events.filter(e=>e.date.startsWith(monthStr)));
-        setGcalError(null);
-      }catch(e2){
-        console.error("GCal iCal error:",e2);
-        setGcalError("無法載入 Google 日曆，請確認日曆已設為公開");
-      }
-    }finally{setGcalLoading(false);}
-  };
-
-  useEffect(()=>{if(gcalEnabled)fetchGcal();},[gcalEnabled,cur.y,cur.m]);
 
   // 點選其他地方關閉選單
   useEffect(()=>{
@@ -1966,7 +1892,6 @@ function CalendarView({data,setData,onSave,onDelete}){
   const pad=n=>String(n).padStart(2,"0");
   const dateStr=(d)=>`${cur.y}-${pad(cur.m+1)}-${pad(d)}`;
   const evtsOn=(date)=>(data.events||[]).filter(e=>e.date===date);
-  const gcalOn=(date)=>gcalEvents.filter(e=>e.date===date);
   const visitsOn=(date)=>data.visits.filter(v=>v.nextVisit===date);
 
   const prevMonth=()=>setCur(c=>{const m=c.m-1;return m<0?{y:c.y-1,m:11}:{y:c.y,m};});
@@ -2011,19 +1936,7 @@ function CalendarView({data,setData,onSave,onDelete}){
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
         <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>{rocYear} 年 {cur.m+1} 月</h1>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>{
-              const url=localStorage.getItem("gcal_ical_url")||"";
-              if(!gcalEnabled&&!url){
-                setGcalError("請先在「⚙ 用戶設定」填入 Google 日曆 iCal 網址");
-                return;
-              }
-              const v=!gcalEnabled;setGcalEnabled(v);localStorage.setItem("gcal_enabled",v?"1":"0");
-            }}
-            style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${gcalEnabled?"#4285F4":C.border}`,background:gcalEnabled?"#EEF3FF":C.card,color:gcalEnabled?"#4285F4":C.muted,fontSize:12,cursor:"pointer",fontFamily:font,display:"flex",alignItems:"center",gap:5}}>
-            <span style={{fontSize:13}}>📅</span>{gcalEnabled?"Google 日曆已開":"同步 Google 日曆"}
-            {gcalLoading&&<span style={{fontSize:10}}>⏳</span>}
-          </button>
-          {gcalEnabled&&<button onClick={fetchGcal} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:12,cursor:"pointer"}} title="重新整理">↻</button>}
+          
           <button onClick={goToday} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:12,cursor:"pointer",fontFamily:font}}>今天</button>
           <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
           <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
@@ -2060,7 +1973,7 @@ function CalendarView({data,setData,onSave,onDelete}){
                 {holiday&&<div style={{fontSize:11,color:"#C04040",fontWeight:600,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{holiday}</div>}
                 {(()=>{
                   const localEvts=evts.filter(e=>e.type!=="節日");
-                  const gEvts=gcalOn(ds);
+                  const gEvts=[];
                   const allEvts=[...localEvts.map(e=>({...e,_src:"local"})),...gEvts.map(e=>({...e,_src:"gcal"}))];
                   const shown=allEvts.slice(0,3);
                   const restN=allEvts.length-shown.length+(vis.length>0&&allEvts.length<3?0:vis.length>0?1:0);
@@ -2098,7 +2011,6 @@ function CalendarView({data,setData,onSave,onDelete}){
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {EVT_TYPES.map(t=>(<div key={t} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:EVT_COLORS[t]}}/>{t}</div>))}
         <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:C.muted}}><div style={{width:8,height:8,borderRadius:"50%",background:"#AAB8C2"}}/>預排訪視</div>
-        {gcalEnabled&&<div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#4285F4"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#4285F4"}}/>Google 日曆</div>}
       </div>
 
       {/* 選取日詳情 */}
@@ -2133,18 +2045,7 @@ function CalendarView({data,setData,onSave,onDelete}){
               {v.followup&&<div style={{fontSize:11,color:C.muted,marginTop:3}}>{v.followup}</div>}
             </div>
           ))}
-          {gcalOn(sel).map((e,i)=>(
-            <div key={"gcal"+i} style={{background:"#EEF3FF",borderRadius:10,border:"1px solid #C5D5F5",padding:"12px 14px",marginBottom:8,borderLeft:"3px solid #4285F4"}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:e.description?4:0}}>
-                <span style={{fontSize:11,fontWeight:700,color:"#4285F4"}}>📅 Google 日曆</span>
-                {(e.timeStart||e.timeEnd)&&<span style={{fontSize:11,color:"#4285F4"}}>🕐 {e.timeStart}{e.timeEnd?` - ${e.timeEnd}`:""}</span>}
-              </div>
-              <div style={{fontSize:13,fontWeight:600,color:"#1A3A8A"}}>{e.title}</div>
-              {e.description&&<div style={{fontSize:11,color:"#4285F4",marginTop:3}}>{e.description}</div>}
-            </div>
-          ))}
-          {gcalError&&<div style={{fontSize:12,color:C.danger,padding:"8px 0"}}>{gcalError}</div>}
-          {selEvts.filter(e=>e.type!=="節日").length===0&&selVisits.length===0&&gcalOn(sel).length===0&&!showForm&&(
+          {selEvts.filter(e=>e.type!=="節日").length===0&&selVisits.length===0&&!showForm&&(
             <div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"24px 0"}}>這天沒有安排<br/><span style={{fontSize:11}}>點「＋ 新增」來加入事件</span></div>
           )}
           {selEvts.filter(e=>e.type!=="節日").map(e=>(
@@ -2822,14 +2723,13 @@ function MonthlyReport({data,setData,onSave}){
 // ── USER SETTINGS ────────────────────────────────────────────────
 function UserSettings({userName,onSave,onClose}){
   const [name,setName]=useState(userName||"");
-  const [clientId,setClientId]=useState(()=>localStorage.getItem("gcal_ical_url")||"");
+  const [clientId,setClientId]=useState("");
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
 
   const handleSave=async()=>{
     if(!name.trim()){alert("請填寫名稱");return;}
     setSaving(true);
-    localStorage.setItem("gcal_ical_url",clientId.trim());
     await onSave(name.trim());
     setDone(true);setSaving(false);
     setTimeout(onClose,800);
@@ -2849,15 +2749,7 @@ function UserSettings({userName,onSave,onClose}){
             style={{...inp(),fontSize:15,marginBottom:8}}
             onKeyDown={e=>e.key==="Enter"&&handleSave()}/>
           <div style={{fontSize:11,color:C.muted,marginBottom:20}}>此名稱會顯示在登入畫面、側邊欄及聯繫紀錄中</div>
-          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,marginBottom:16}}>
-            <label style={{fontSize:12,color:C.muted,display:"block",marginBottom:6,fontWeight:500}}>📅 Google 日曆 iCal 網址</label>
-            <input value={clientId} onChange={e=>setClientId(e.target.value)}
-              placeholder="貼上 Google 日曆 iCal 公開網址..."
-              style={{...inp(),fontSize:12,marginBottom:6}}/>
-            <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>
-              Google 日曆 → 設定 → 選擇日曆 → 整合日曆 → 複製「公開網址（iCal 格式）」
-            </div>
-          </div>
+          
           {done
             ? <div style={{textAlign:"center",color:"#2A9D5C",fontWeight:600,fontSize:14}}>✓ 已儲存！</div>
             : <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
@@ -2946,8 +2838,7 @@ function App(){
             }
           }catch{}
           // 嘗試搬移舊資料（只在第一次登入時執行）
-          const migrated=await migrateOldData();
-          if(migrated)console.log("migrated");
+          await migrateOldData();
           // 一次性載入靜態資料
           const [cases,visits,resources,diary,levelHistory]=await Promise.all([
             fbGet("cases"),fbGet("visits"),fbGet("resources"),fbGet("diary"),fbGet("levelHistory")
