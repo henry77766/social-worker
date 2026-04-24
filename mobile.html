@@ -386,7 +386,6 @@ window.saveQuick=async function(){
     const {id:rid,...recData}=rec;
     console.log('Saving to path:', userCol('caseRecords'), 'uid:', uid, 'rid:', rid);
     await db.collection(userCol('caseRecords')).doc(rid).set(recData);
-    console.log('Save success!');
     caseRecords.push(rec);
     quickForm={date:toDay(),caseId:'',contactPersons:[],contactPersonType:'',contactPerson:'',contactMethod:'電訪',contactCount:'1',serviceCount:'1',serviceLocation:'',content:'',resourceUnit:''};
     caseSearch='';showAutoComplete=false;
