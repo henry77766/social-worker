@@ -2380,6 +2380,8 @@ function MonthlyReport({data,setData,onSave}){
   const [editId,setEditId]=useState(null);
   const [filterMethod,setFilterMethod]=useState(null);
   const [viewId,setViewId]=useState(null);
+  const [showCheck,setShowCheck]=useState(false);
+  const [showHomeVisit,setShowHomeVisit]=useState(false);
 
   const exportExcel=()=>{
     const rows=[["日期","個案姓名","案號","聯繫對象","資源聯繫單位","聯繫方式","次數","聯繫內容"]];
@@ -2484,6 +2486,100 @@ function MonthlyReport({data,setData,onSave}){
     XLSX.writeFile(wb,`政府月報表_民${rocYear}年${MONTH_NAMES[month-1]}.xlsx`);
   };
 
+  // ── 匯出服務量統計（依等級分工作表）──────────────────────────
+  const exportServiceStats=()=>{
+    // 本月聯繫紀錄
+    const monthRecs=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr));
+    // 等級對應聯繫紀錄
+    const levels=["一","二","三","四"];
+    const wb=XLSX.utils.book_new();
+
+    levels.forEach(lv=>{
+      // 屬於該等級的個案（用 changeLevel）
+      const levelCases=(data.cases||[]).filter(c=>{
+        const cl=(c.changeLevel||"").toString();
+        return cl.includes(lv);
+      });
+      const levelCaseIds=new Set(levelCases.map(c=>c.id));
+
+      // 四級要分開：一般四級 vs 列管中心案
+      let groups;
+      if(lv==="四"){
+        groups=[
+          {label:"第四級",filter:c=>c.status!=="列管中"},
+          {label:"列管中心案",filter:c=>c.status==="列管中"}
+        ];
+      }else{
+        groups=[{label:"第"+lv+"級",filter:()=>true}];
+      }
+
+      const rows=[];
+      rows.push(["服務類別","男人數","男人次","女人數","女人次","總人數","總人次"]);
+
+      groups.forEach(g=>{
+        const groupCases=levelCases.filter(g.filter);
+        const groupCaseIds=new Set(groupCases.map(c=>c.id));
+        const groupRecs=monthRecs.filter(r=>groupCaseIds.has(r.caseId));
+
+        // 男
+        const maleIds=new Set();
+        let maleTimes=0;
+        groupRecs.forEach(r=>{
+          const c=groupCases.find(x=>x.id===r.caseId);
+          if(c?.gender==="男"){
+            maleIds.add(r.caseId);
+            maleTimes+=parseInt(r.serviceCount||1);
+          }
+        });
+        // 女
+        const femaleIds=new Set();
+        let femaleTimes=0;
+        groupRecs.forEach(r=>{
+          const c=groupCases.find(x=>x.id===r.caseId);
+          if(c?.gender==="女"){
+            femaleIds.add(r.caseId);
+            femaleTimes+=parseInt(r.serviceCount||1);
+          }
+        });
+
+        rows.push([
+          g.label,
+          maleIds.size,maleTimes,
+          femaleIds.size,femaleTimes,
+          maleIds.size+femaleIds.size,
+          maleTimes+femaleTimes
+        ]);
+      });
+
+      // 加個別個案明細
+      rows.push([]);
+      rows.push(["個案明細"]);
+      rows.push(["個案姓名","案號","性別","狀態","男人數","男人次","女人數","女人次"]);
+      levelCases.forEach(c=>{
+        const caseRecs=monthRecs.filter(r=>r.caseId===c.id);
+        if(caseRecs.length===0)return;
+        const times=caseRecs.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
+        const isMale=c.gender==="男";
+        rows.push([
+          c.name||"",
+          c.caseNo||"",
+          c.gender||"",
+          c.status||"",
+          isMale?1:0,
+          isMale?times:0,
+          !isMale?1:0,
+          !isMale?times:0
+        ]);
+      });
+
+      const ws=XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"]=[{wch:16},{wch:12},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10}];
+      XLSX.utils.book_append_sheet(wb,ws,"第"+lv+"級");
+    });
+
+    XLSX.writeFile(wb,`服務量統計_民${rocYear}年${MONTH_NAMES[month-1]}.xlsx`);
+  };
+
   const [editRec,setEditRec]=useState({});
   const fldEdit=(k,v)=>setEditRec(r=>({...r,[k]:v}));
 
@@ -2493,6 +2589,82 @@ function MonthlyReport({data,setData,onSave}){
     await onSave("caseRecords",updated);
     setEditId(null);
   };
+
+  // 服務量檢查明細（簡化計算）
+  const checkGroups=[];
+  const uncategorized={items:[],count:0};
+  if(showCheck){
+    const levels=["一","二","三","四"];
+    const monthRecords=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr));
+
+    // 找出本月有服務但無法分類（無現在等級）的個案
+    const uncatCaseIds=new Set();
+    monthRecords.forEach(r=>{
+      const c=(data.cases||[]).find(x=>x.id===r.caseId);
+      if(!c)return;
+      const lv=(c.changeLevel||"").toString();
+      if(!lv.includes("一")&&!lv.includes("二")&&!lv.includes("三")&&!lv.includes("四")){
+        uncatCaseIds.add(c.id);
+      }
+    });
+    uncatCaseIds.forEach(cid=>{
+      const c=(data.cases||[]).find(x=>x.id===cid);
+      if(!c)return;
+      const caseRecs=monthRecords.filter(r=>r.caseId===c.id);
+      const times=caseRecs.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
+      uncategorized.items.push({name:c.name,caseNo:c.caseNo,gender:c.gender,status:c.status,changeLevel:c.changeLevel,count:caseRecs.length,times});
+    });
+
+    levels.forEach(lv=>{
+      const levelCases=(data.cases||[]).filter(c=>(c.changeLevel||"").toString().includes(lv));
+      const subGroups=lv==="四"
+        ?[{label:"第四級（不含列管）",cases:levelCases.filter(c=>c.status!=="列管中")},
+          {label:"列管中心案",cases:levelCases.filter(c=>c.status==="列管中")}]
+        :[{label:"第"+lv+"級",cases:levelCases}];
+      subGroups.forEach(g=>{
+        const items=[];
+        let maleP=0,femaleP=0,maleT=0,femaleT=0;
+        g.cases.forEach(c=>{
+          const caseRecs=monthRecords.filter(r=>r.caseId===c.id);
+          if(caseRecs.length===0)return;
+          const times=caseRecs.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
+          items.push({name:c.name,caseNo:c.caseNo,gender:c.gender,status:c.status,count:caseRecs.length,times});
+          if(c.gender==="男"){maleP++;maleT+=times;}
+          else if(c.gender==="女"){femaleP++;femaleT+=times;}
+        });
+        checkGroups.push({label:g.label,items,maleP,femaleP,maleT,femaleT});
+      });
+    });
+  }
+
+  // 家訪統計（服務地點=案家）
+  const homeVisitStats={lv1:{cases:new Set(),times:0},lv2:{cases:new Set(),times:0},lv3:{cases:new Set(),times:0},lv4:{cases:new Set(),times:0},items:[]};
+  if(showHomeVisit){
+    const monthRecords=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr)&&r.serviceLocation==="案家");
+    monthRecords.forEach(r=>{
+      const c=(data.cases||[]).find(x=>x.id===r.caseId);
+      if(!c)return;
+      const lv=(c.changeLevel||"").toString();
+      const times=parseInt(r.serviceCount||1);
+      let lvKey=null;
+      if(lv.includes("一"))lvKey="lv1";
+      else if(lv.includes("二"))lvKey="lv2";
+      else if(lv.includes("三"))lvKey="lv3";
+      else if(lv.includes("四"))lvKey="lv4";
+      if(lvKey){
+        homeVisitStats[lvKey].cases.add(c.id);
+        homeVisitStats[lvKey].times+=times;
+      }
+      // 明細
+      const existItem=homeVisitStats.items.find(x=>x.caseId===c.id);
+      if(existItem){
+        existItem.count++;
+        existItem.times+=times;
+      }else{
+        homeVisitStats.items.push({caseId:c.id,name:c.name,caseNo:c.caseNo,changeLevel:c.changeLevel,count:1,times});
+      }
+    });
+  }
 
   // 篩選該月份的聯繫紀錄
   const records=(data.caseRecords||[])
@@ -2535,6 +2707,14 @@ function MonthlyReport({data,setData,onSave}){
             style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#4A6E8A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             📋 匯出月報表
           </button>
+          <button onClick={()=>setShowCheck(v=>!v)}
+            style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showCheck?C.primary:C.border}`,background:showCheck?C.primary:"transparent",color:showCheck?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            🔍 {showCheck?"隱藏檢查":"檢查計算"}
+          </button>
+          <button onClick={()=>setShowHomeVisit(v=>!v)}
+            style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showHomeVisit?"#C4824A":C.border}`,background:showHomeVisit?"#C4824A":"transparent",color:showHomeVisit?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            📊 {showHomeVisit?"隱藏家訪":"家訪統計"}
+          </button>
         </div>
       </div>
 
@@ -2551,6 +2731,160 @@ function MonthlyReport({data,setData,onSave}){
           </div>
         ))}
       </div>
+
+      {/* 家訪統計面板 */}
+      {showHomeVisit&&(
+        <div style={{background:"#FFF5EB",border:"2px solid #C4824A",borderRadius:12,padding:20,marginBottom:20}}>
+          <div style={{fontSize:15,fontWeight:700,color:"#7A4A20",marginBottom:16}}>📊 家訪統計（服務地點＝案家）</div>
+          <div style={{background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:"#FFE0C5"}}>
+                  <th style={{padding:"8px 12px",textAlign:"left",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>項目</th>
+                  <th style={{padding:"8px 12px",textAlign:"center",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>1級</th>
+                  <th style={{padding:"8px 12px",textAlign:"center",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>2級</th>
+                  <th style={{padding:"8px 12px",textAlign:"center",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>3級</th>
+                  <th style={{padding:"8px 12px",textAlign:"center",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>4級</th>
+                  <th style={{padding:"8px 12px",textAlign:"center",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>合計</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                  <td style={{padding:"10px 12px",fontWeight:600,color:C.text}}>服務人數</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv1.cases.size}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv2.cases.size}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv3.cases.size}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv4.cases.size}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:18,fontWeight:700,color:"#7A4A20",background:"#FFF0E0"}}>{homeVisitStats.lv1.cases.size+homeVisitStats.lv2.cases.size+homeVisitStats.lv3.cases.size+homeVisitStats.lv4.cases.size}</td>
+                </tr>
+                <tr>
+                  <td style={{padding:"10px 12px",fontWeight:600,color:C.text}}>服務人次</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv1.times}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv2.times}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv3.times}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:16,fontWeight:700,color:"#C4824A"}}>{homeVisitStats.lv4.times}</td>
+                  <td style={{padding:"10px 12px",textAlign:"center",fontSize:18,fontWeight:700,color:"#7A4A20",background:"#FFF0E0"}}>{homeVisitStats.lv1.times+homeVisitStats.lv2.times+homeVisitStats.lv3.times+homeVisitStats.lv4.times}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {homeVisitStats.items.length>0&&(
+            <div style={{background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
+              <div style={{padding:"8px 14px",background:"#FFF0E0",fontSize:12,fontWeight:700,color:"#7A4A20"}}>家訪個案明細（{homeVisitStats.items.length} 人）</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:C.cardAlt}}>
+                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>個案</th>
+                    <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>案號</th>
+                    <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>現在等級</th>
+                    <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>家訪次數</th>
+                    <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>服務人次</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {homeVisitStats.items.map((it,i)=>(
+                    <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{it.name}</td>
+                      <td style={{padding:"6px 10px",color:C.muted}}>{it.caseNo||"—"}</td>
+                      <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.changeLevel||"—"}</td>
+                      <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.count}</td>
+                      <td style={{padding:"6px 10px",textAlign:"center",color:"#C4824A",fontWeight:700}}>{it.times}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{fontSize:11,color:C.muted,marginTop:10,lineHeight:1.6}}>
+            💡 只統計本月「服務地點＝案家」的聯繫紀錄，依「現在等級」分組。若個案有多筆家訪紀錄，人數只算 1 人，人次則為全部加總。
+          </div>
+        </div>
+      )}
+
+      {/* 檢查計算面板 */}
+      {showCheck&&(
+          <div style={{background:"#FFF8ED",border:"2px solid #E0B060",borderRadius:12,padding:20,marginBottom:20}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#7A5A20",marginBottom:16}}>🔍 服務量計算明細</div>
+            {checkGroups.map((g,gi)=>(
+              <div key={gi} style={{marginBottom:16,background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                <div style={{padding:"10px 14px",background:"#F0E8D5",fontSize:13,fontWeight:700,color:"#7A5A20",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                  <span>{g.label}</span>
+                  <span style={{fontSize:12,fontWeight:500,color:C.muted}}>
+                    男 {g.maleP}人/{g.maleT}次 · 女 {g.femaleP}人/{g.femaleT}次 · 總 {g.maleP+g.femaleP}人/{g.maleT+g.femaleT}次
+                  </span>
+                </div>
+                {g.items.length===0
+                  ?<div style={{padding:"10px 14px",fontSize:12,color:C.muted}}>本月無服務紀錄</div>
+                  :<table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:C.cardAlt}}>
+                        <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>個案</th>
+                        <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>案號</th>
+                        <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>性別</th>
+                        <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>狀態</th>
+                        <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>紀錄筆數</th>
+                        <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>服務人次</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.items.map((it,i)=>{
+                        const noGender=!it.gender||(it.gender!=="男"&&it.gender!=="女");
+                        return(
+                        <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:noGender?"#FFF0F0":"transparent"}}>
+                          <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{noGender&&<span title="缺少性別" style={{color:"#D04545",marginRight:4}}>⚠️</span>}{it.name}</td>
+                          <td style={{padding:"6px 10px",color:C.muted}}>{it.caseNo||"—"}</td>
+                          <td style={{padding:"6px 10px",textAlign:"center",color:noGender?"#D04545":C.text,fontWeight:noGender?700:400}}>{it.gender||"未填"}</td>
+                          <td style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{it.status||"—"}</td>
+                          <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.count}</td>
+                          <td style={{padding:"6px 10px",textAlign:"center",color:C.accent,fontWeight:700}}>{it.times}</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>}
+              </div>
+            ))}
+            {uncategorized.items.length>0&&(
+              <div style={{marginTop:16,background:"#FFF0F0",border:"2px solid #D04545",borderRadius:8,overflow:"hidden"}}>
+                <div style={{padding:"10px 14px",background:"#FFE0E0",fontSize:13,fontWeight:700,color:"#A03030",display:"flex",alignItems:"center",gap:6}}>
+                  ⚠️ 無法分類（現在等級為空）— {uncategorized.items.length} 個個案
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{background:"#FFE8E8"}}>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:"#A03030",fontWeight:600}}>個案</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:"#A03030",fontWeight:600}}>案號</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:"#A03030",fontWeight:600}}>性別</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:"#A03030",fontWeight:600}}>現在等級</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:"#A03030",fontWeight:600}}>紀錄筆數</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:"#A03030",fontWeight:600}}>服務人次</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uncategorized.items.map((it,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #FFBBBB"}}>
+                        <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{it.name}</td>
+                        <td style={{padding:"6px 10px",color:C.muted}}>{it.caseNo||"—"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.gender||"未填"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:"#D04545",fontWeight:700}}>{it.changeLevel||"未填"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.count}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:"#D04545",fontWeight:700}}>{it.times}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{padding:"8px 14px",fontSize:11,color:"#A03030",background:"#FFE8E8"}}>
+                  ⚠️ 這些個案本月有服務紀錄但「現在等級」欄位為空，不會被計入任何等級的服務量。請至個案管理補填等級。
+                </div>
+              </div>
+            )}
+            <div style={{fontSize:11,color:C.muted,marginTop:10,lineHeight:1.6}}>
+              💡 依「現在等級」分組，只列出本月有服務紀錄的個案。<br/>
+              🟡 紅色標示：性別未填的個案不會計入男/女人數統計，請補填。<br/>
+              🔴 紅框區塊：「現在等級」為空的個案不會出現在任何等級中，請補填。
+            </div>
+          </div>
+      )}
 
       {/* 聯繫方式統計 */}
       {Object.keys(byMethod).length>0&&(
