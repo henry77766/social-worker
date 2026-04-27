@@ -988,16 +988,15 @@ function CaseEditModal({caseData, onSave, onClose}){
 }
 
 // ── CASE VIEW MODAL ──────────────────────────────────────────────
-function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, onClose}){
+function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete, onEdit, onClose}){
+  const [showAddHist,setShowAddHist]=useState(false);
+  const [histForm,setHistForm]=useState({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
+  const [editHistId,setEditHistId]=useState(null);
+  const [editHistForm,setEditHistForm]=useState({});
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A","列管中":"#8B6DB8"};
-  const Section=({title,children})=>(
-    <div style={{marginBottom:20}}>
-      <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>{title}</div>
-      {children}
-    </div>
-  );
+
   const Row=({label,val})=>val?(
     <div style={{display:"flex",gap:8,fontSize:13,marginBottom:5}}>
       <span style={{color:C.muted,minWidth:100,flexShrink:0}}>{label}</span>
@@ -1024,20 +1023,20 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
         </div>
 
         <div style={{padding:"24px 28px",maxHeight:"70vh",overflowY:"auto"}}>
-          <Section title="基本資料">
+          <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>基本資料</div>
             <Row label="身分證字號" val={c.idNo}/>
             <Row label="生理性別" val={c.gender}/>
             <Row label="出生日期／年齡" val={c.birthDate?`${fmtDate(c.birthDate)}${c.age?`・${c.age}歲`:""}`:c.age?`${c.age}歲`:null}/>
             <Row label="新制障別" val={c.disabilityType==="多重障"?`多重障（${c.disabilityDetail||"未填"}）`:c.disabilityType}/>
-          </Section>
-          <Section title="地址與居住">
+          </div>
+          <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>地址與居住</div>
             <Row label="戶籍地" val={c.registeredAddr}/>
             <Row label="居住地" val={c.addr}/>
             <Row label="居住狀況" val={c.livingStatus}/>
             <Row label="獨居" val={c.livingAlone}/>
             <Row label="雙老" val={c.elderlyCouple}/>
-          </Section>
-          <Section title="進案資訊">
+          </div>
+          <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>進案資訊</div>
             <Row label="來源" val={c.source}/>
             <Row label="轉介單位" val={c.referralUnit}/>
             <Row label="進案時間" val={fmtDate(c.caseInDate)}/>
@@ -1049,29 +1048,38 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
             <Row label="現在等級" val={c.changeLevel}/>
             <Row label="基本頻率" val={c.visitFreq}/>
             <Row label="主責社工" val={c.mainWorker}/>
-          </Section>
+          </div>
           {c.note&&(
-            <Section title="簡要服務紀錄">
+            <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>簡要服務紀錄</div>
               <div style={{fontSize:13,color:C.text,lineHeight:1.8,background:C.cardAlt,padding:"12px 16px",borderRadius:8,whiteSpace:"pre-wrap"}}>{c.note}</div>
-            </Section>
+            </div>
           )}
           {/* ── 等級異動歷程 ── */}
           {(()=>{
             const hist=[...(levelHistory||[]).filter(h=>h.caseId===c.id)].sort((a,b)=>b.date.localeCompare(a.date));
-            const [showAdd,setShowAdd]=useState(false);
-            const [addForm,setAddForm]=useState({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
+            const showAdd=showAddHist;
+            const setShowAdd=setShowAddHist;
+            const addForm=histForm;
+            const setAddForm=setHistForm;
             const LEVEL_FIELDS={"systemLevel":"系統分案等級","initialLevel":"個案起始等級","changeLevel":"現在等級"};
             const LEVEL_OPTS=["","一般","特殊","高關懷","急迫"];
             const handleAddHistory=async()=>{
               if(!addForm.to){alert("請填寫變動後等級");return;}
               const record={id:uid(),caseId:c.id,caseName:c.name,date:addForm.date,field:addForm.field,from:addForm.from,to:addForm.to,note:addForm.note,auto:false};
-              setData(d=>({...d,levelHistory:[...(d.levelHistory||[]),record]}));
+              // 同步更新個案的等級欄位
+              const updatedCase={...c,[addForm.field]:addForm.to,lastModified:toDay()};
+              setData(d=>({
+                ...d,
+                levelHistory:[...(d.levelHistory||[]),record],
+                cases:d.cases.map(x=>x.id===c.id?updatedCase:x)
+              }));
               await onSave("levelHistory",record);
+              await onSave("cases",updatedCase);
               setAddForm({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
               setShowAdd(false);
             };
             return(
-              <Section title={`📊 等級異動歷程（共 ${hist.length} 筆）`}>
+              <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>{`📊 等級異動歷程（共 ${hist.length} 筆）`}</div>
                 <button onClick={()=>setShowAdd(v=>!v)}
                   style={{padding:"5px 14px",borderRadius:8,border:`1px solid ${C.accent}`,background:"#FFF8F0",color:C.accent,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,marginBottom:10}}>
                   {showAdd?"取消":"＋ 補登歷史異動"}
@@ -1111,26 +1119,73 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
                 {hist.length===0
                   ? <div style={{fontSize:12,color:C.muted,padding:"8px 0"}}>尚無等級異動紀錄</div>
                   : hist.map(h=>(
-                    <div key={h.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 14px",borderRadius:8,background:h.auto?"#EEF7F3":"#FFF8F0",border:`1px solid ${h.auto?C.primary:C.accent}`,marginBottom:6}}>
-                      <div style={{flex:1}}>
-                        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:h.note?4:0}}>
-                          <span style={{fontSize:11,color:h.auto?C.primary:C.accent,fontWeight:700}}>{fmtDate(h.date)}</span>
-                          <span style={{fontSize:11,color:C.muted}}>{"systemLevel"===h.field?"系統分案":"initialLevel"===h.field?"個案起始":"個案異動"}等級</span>
-                          {h.from&&<span style={{fontSize:12,padding:"1px 8px",borderRadius:20,background:"#FFF0F0",color:C.danger}}>{h.from}</span>}
-                          <span style={{fontSize:11,color:C.muted}}>→</span>
-                          <span style={{fontSize:12,padding:"1px 8px",borderRadius:20,background:h.auto?"#E8F5EE":"#FFF4E0",color:h.auto?"#2A7A4A":C.accent,fontWeight:700}}>{h.to}</span>
-                          <span style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{h.auto?"自動偵測":"手動補登"}</span>
+                    editHistId===h.id
+                      ? <div key={h.id} style={{padding:"10px 14px",borderRadius:8,background:"#FFF8F0",border:`1px solid ${C.accent}`,marginBottom:6}}>
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px",marginBottom:8}}>
+                            <div>
+                              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>日期</label>
+                              <input type="date" value={editHistForm.date||""} onChange={e=>setEditHistForm(f=>({...f,date:e.target.value}))} style={{...inp(),fontSize:13}}/>
+                            </div>
+                            <div>
+                              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>等級類型</label>
+                              <select value={editHistForm.field||"changeLevel"} onChange={e=>setEditHistForm(f=>({...f,field:e.target.value}))} style={{...inp(),fontSize:13}}>
+                                {Object.entries(LEVEL_FIELDS).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>變動前等級</label>
+                              <input value={editHistForm.from||""} onChange={e=>setEditHistForm(f=>({...f,from:e.target.value}))} placeholder="—" style={{...inp(),fontSize:13}}/>
+                            </div>
+                            <div>
+                              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>變動後等級 *</label>
+                              <input value={editHistForm.to||""} onChange={e=>setEditHistForm(f=>({...f,to:e.target.value}))} placeholder="必填" style={{...inp(),fontSize:13}}/>
+                            </div>
+                            <div style={{gridColumn:"span 2"}}>
+                              <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>備註說明</label>
+                              <input value={editHistForm.note||""} onChange={e=>setEditHistForm(f=>({...f,note:e.target.value}))} placeholder="選填" style={{...inp(),fontSize:13}}/>
+                            </div>
+                          </div>
+                          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                            <button onClick={()=>{setEditHistId(null);setEditHistForm({});}} style={{padding:"5px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:12,cursor:"pointer"}}>取消</button>
+                            <button onClick={async()=>{
+                              if(!editHistForm.to){alert("請填寫變動後等級");return;}
+                              const updated={...editHistForm,lastModified:toDay()};
+                              setData(d=>({...d,levelHistory:d.levelHistory.map(x=>x.id===h.id?updated:x)}));
+                              await onSave("levelHistory",updated);
+                              setEditHistId(null);setEditHistForm({});
+                            }} style={{padding:"5px 14px",borderRadius:7,border:"none",background:C.accent,color:"#fff",fontSize:12,cursor:"pointer",fontWeight:600}}>儲存</button>
+                          </div>
                         </div>
-                        {h.note&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{h.note}</div>}
-                      </div>
-                    </div>
+                      : <div key={h.id} style={{display:"flex",gap:10,alignItems:"flex-start",padding:"10px 14px",borderRadius:8,background:h.auto?"#EEF7F3":"#FFF8F0",border:`1px solid ${h.auto?C.primary:C.accent}`,marginBottom:6}}>
+                          <div style={{flex:1}}>
+                            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:h.note?4:0}}>
+                              <span style={{fontSize:11,color:h.auto?C.primary:C.accent,fontWeight:700}}>{fmtDate(h.date)}</span>
+                              <span style={{fontSize:11,color:C.muted}}>{"systemLevel"===h.field?"系統分案":"initialLevel"===h.field?"個案起始":"個案異動"}等級</span>
+                              {h.from&&<span style={{fontSize:12,padding:"1px 8px",borderRadius:20,background:"#FFF0F0",color:C.danger}}>{h.from}</span>}
+                              <span style={{fontSize:11,color:C.muted}}>→</span>
+                              <span style={{fontSize:12,padding:"1px 8px",borderRadius:20,background:h.auto?"#E8F5EE":"#FFF4E0",color:h.auto?"#2A7A4A":C.accent,fontWeight:700}}>{h.to}</span>
+                              <span style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{h.auto?"自動偵測":"手動補登"}</span>
+                            </div>
+                            {h.note&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{h.note}</div>}
+                          </div>
+                          <div style={{display:"flex",gap:4,flexShrink:0}}>
+                            <button onClick={()=>{setEditHistId(h.id);setEditHistForm({...h});}} title="編輯"
+                              style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12,color:C.muted}}>✏️</button>
+                            <button onClick={async()=>{
+                              if(!confirm("確定刪除這筆異動紀錄嗎？"))return;
+                              setData(d=>({...d,levelHistory:d.levelHistory.filter(x=>x.id!==h.id)}));
+                              if(onDelete)await onDelete("levelHistory",h.id);
+                            }} title="刪除"
+                              style={{padding:"4px 8px",borderRadius:6,border:"1px solid #E5C5C5",background:"#FFF4F4",cursor:"pointer",fontSize:12,color:"#C04545"}}>×</button>
+                          </div>
+                        </div>
                   ))
                 }
-              </Section>
+              </div>
             );
           })()}
           {records.length>0&&(
-            <Section title={`最近聯繫紀錄（共 ${records.length} 筆）`}>
+            <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>{`最近聯繫紀錄（共 ${records.length} 筆）`}</div>
               {records.slice(0,5).map(r=>(
                 <div key={r.id} style={{padding:"10px 14px",borderRadius:8,background:C.cardAlt,border:`1px solid ${C.border}`,marginBottom:8}}>
                   <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:r.content?6:0,flexWrap:"wrap"}}>
@@ -1144,7 +1199,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onEdit, o
                 </div>
               ))}
               {records.length>5&&<div style={{fontSize:12,color:C.muted,textAlign:"center",marginTop:4}}>…另有 {records.length-5} 筆，請開啟聯繫紀錄查看</div>}
-            </Section>
+            </div>
           )}
         </div>
 
@@ -1283,7 +1338,7 @@ function CaseList({data,setData,onSave,onDelete}){
     <div>
       {showImport&&<ExcelImporter onImport={handleImport} onClose={()=>setShowImport(false)}/>}
       {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
-      {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} levelHistory={data.levelHistory} setData={setData} onSave={onSave} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
+      {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} levelHistory={data.levelHistory} setData={setData} onSave={onSave} onDelete={onDelete} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
       {recordsCase&&<CaseRecordsModal caseData={recordsCase} caseRecords={data.caseRecords||[]} setData={setData} onSave={onSave} onDelete={onDelete} onClose={()=>setRecordsCase(null)}/>}
       {/* 聯繫資訊預覽 Modal */}
       {contactPreview&&(
