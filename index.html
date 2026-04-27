@@ -587,7 +587,7 @@ function ExcelImporter({onImport,onClose}){
 
 // ── DASHBOARD ───────────────────────────────────────────────────
 function QuickRecordPanel({data,setData,onSave}){
-  const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:"",serviceLocation:""};
+  const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:"",serviceLocation:"",timeRange:""};
   const [form,setForm]=useState(blank);
   const [saved,setSaved]=useState(false);
   const [caseSearch,setCaseSearch]=useState("");
@@ -657,7 +657,7 @@ function QuickRecordPanel({data,setData,onSave}){
             </div>
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫方式</label>
-              <select value={form.contactMethod} onChange={e=>fld("contactMethod",e.target.value)} style={inp({fontSize:13})}>
+              <select value={form.contactMethod} onChange={e=>{fld("contactMethod",e.target.value);fld("timeRange","");}} style={inp({fontSize:13})}>
                 {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
               </select>
             </div>
@@ -670,6 +670,33 @@ function QuickRecordPanel({data,setData,onSave}){
               <input type="number" min="1" value={form.serviceCount||"1"} onChange={e=>fld("serviceCount",e.target.value)} style={inp({fontSize:13})}/>
             </div>
           </div>
+          {/* 服務時間範圍（依聯繫方式動態顯示） */}
+          {["家訪","晤談","外訪","陪同"].includes(form.contactMethod)&&(
+            <div style={{marginTop:8,padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:500}}>服務時間</div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                {["1-119分","120分以上"].map(t=>(
+                  <label key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,cursor:"pointer",color:C.text}}>
+                    <input type="radio" name="qf-tr" checked={form.timeRange===t} onChange={()=>fld("timeRange",t)}/>
+                    訪視會談 {t}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          {form.contactMethod==="電訪"&&(
+            <div style={{marginTop:8,padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:500}}>服務時間</div>
+              <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                {["1-9分","10-19分","20分以上"].map(t=>(
+                  <label key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,cursor:"pointer",color:C.text}}>
+                    <input type="radio" name="qf-tr" checked={form.timeRange===t} onChange={()=>fld("timeRange",t)}/>
+                    電話 {t}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           {/* 聯繫對象 - 多選標籤 */}
           <div>
             <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>
@@ -2123,7 +2150,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
   const records=[...(caseRecords||[]).filter(r=>r.caseId===caseData.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
 
-  const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",serviceCount:"1",content:"",serviceLocation:""};
+  const blank={date:toDay(),contactPerson:"",resourceUnit:"",contactMethod:"電訪",contactCount:"1",serviceCount:"1",content:"",serviceLocation:"",timeRange:""};
   const [showAdd,setShowAdd]=useState(false);
   const [addRec,setAddRec]=useState(blank);
   const [editId,setEditId]=useState(null);
@@ -2229,6 +2256,32 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
                 <input type="number" min="1" value={addRec.serviceCount||"1"} onChange={e=>fldAdd("serviceCount",e.target.value)} style={{...inp(),width:72}}/>
               </div>
             </div>
+            {["家訪","晤談","外訪","陪同"].includes(addRec.contactMethod)&&(
+              <div style={{marginBottom:12,padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:500}}>服務時間</div>
+                <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                  {["1-119分","120分以上"].map(t=>(
+                    <label key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:13,cursor:"pointer",color:C.text}}>
+                      <input type="radio" name="add-tr" checked={addRec.timeRange===t} onChange={()=>fldAdd("timeRange",t)}/>
+                      訪視會談 {t}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {addRec.contactMethod==="電訪"&&(
+              <div style={{marginBottom:12,padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:500}}>服務時間</div>
+                <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                  {["1-9分","10-19分","20分以上"].map(t=>(
+                    <label key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:13,cursor:"pointer",color:C.text}}>
+                      <input type="radio" name="add-tr" checked={addRec.timeRange===t} onChange={()=>fldAdd("timeRange",t)}/>
+                      電話 {t}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{marginBottom:12}}>
               <Label>服務地點</Label>
               <select value={addRec.serviceLocation||""} onChange={e=>fldAdd("serviceLocation",e.target.value)} style={inp()}>
@@ -2412,10 +2465,21 @@ function MonthlyReport({data,setData,onSave}){
 
   // ── 匯出政府月報表格式（完整欄位）──────────────────────────────
   const exportGovTable=()=>{
-    const methodMap=(m)=>({
-      家訪:"訪視會談1-119分",外訪:"訪視會談1-119分",晤談:"訪視會談1-119分",陪同:"訪視會談1-119分",
-      電訪:"電話1-9分",簡訊:"其他",代辦:"其他",個研:"研討協條",函件:"公文或函件",
-    }[m]||"其他");
+    const methodMap=(m,tr)=>{
+      // 訪視類
+      if(["家訪","外訪","晤談","陪同"].includes(m)){
+        return tr==="120分以上"?"訪視會談120分以上":"訪視會談1-119分";
+      }
+      // 電訪
+      if(m==="電訪"){
+        if(tr==="10-19分")return "電話10-19分";
+        if(tr==="20分以上")return "電話20分以上";
+        return "電話1-9分";
+      }
+      // 其他
+      const map={簡訊:"其他",代辦:"其他",個研:"研討協條",函件:"公文或函件"};
+      return map[m]||"其他";
+    };
     const serviceTypeMap=(m)=>({
       家訪:"關懷服務(面談)",外訪:"關懷服務(面談)",晤談:"關懷服務(面談)",陪同:"關懷服務(面談)",
       電訪:"關懷服務(電訪)",函件:"關懷服務(郵寄)",
@@ -2444,7 +2508,7 @@ function MonthlyReport({data,setData,onSave}){
     const rows=[header];
     recs.forEach(r=>{
       const c=data.cases.find(x=>x.id===r.caseId);
-      const method=methodMap(r.contactMethod||"");
+      const method=methodMap(r.contactMethod||"",r.timeRange||"");
       const svcType=serviceTypeMap(r.contactMethod||"");
       const loc=r.serviceLocation||"";
       const persons=(r.contactPersons||[]).map(p=>p.type);
@@ -2930,7 +2994,7 @@ function MonthlyReport({data,setData,onSave}){
                     <div style={{display:"flex",gap:8}}>
                       <div style={{flex:2}}>
                         <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫方式</label>
-                        <select value={editRec.contactMethod||"電訪"} onChange={e=>fldEdit("contactMethod",e.target.value)} style={{...inp(),fontSize:13}}>
+                        <select value={editRec.contactMethod||"電訪"} onChange={e=>{fldEdit("contactMethod",e.target.value);fldEdit("timeRange","");}} style={{...inp(),fontSize:13}}>
                           {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
                         </select>
                       </div>
@@ -2943,6 +3007,32 @@ function MonthlyReport({data,setData,onSave}){
                         <input type="number" min="1" value={editRec.serviceCount||"1"} onChange={e=>fldEdit("serviceCount",e.target.value)} style={{...inp(),fontSize:13}}/>
                       </div>
                     </div>
+                    {["家訪","晤談","外訪","陪同"].includes(editRec.contactMethod)&&(
+                      <div style={{gridColumn:"span 2",padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:500}}>服務時間</div>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                          {["1-119分","120分以上"].map(t=>(
+                            <label key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,cursor:"pointer",color:C.text}}>
+                              <input type="radio" name={`mr-tr-${editRec.id}`} checked={editRec.timeRange===t} onChange={()=>fldEdit("timeRange",t)}/>
+                              訪視會談 {t}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {editRec.contactMethod==="電訪"&&(
+                      <div style={{gridColumn:"span 2",padding:"8px 12px",background:C.cardAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:500}}>服務時間</div>
+                        <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
+                          {["1-9分","10-19分","20分以上"].map(t=>(
+                            <label key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,cursor:"pointer",color:C.text}}>
+                              <input type="radio" name={`mr-tr-${editRec.id}`} checked={editRec.timeRange===t} onChange={()=>fldEdit("timeRange",t)}/>
+                              電話 {t}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div style={{gridColumn:"span 2"}}>
                       <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>
                         聯繫對象
