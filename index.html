@@ -2826,7 +2826,8 @@ function MonthlyReport({data,setData,onSave}){
     });
 
     levels.forEach(lv=>{
-      const levelCases=(data.cases||[]).filter(c=>(c.changeLevel||"").toString().includes(lv));
+      // 等級分組：排除待評估
+      const levelCases=(data.cases||[]).filter(c=>(c.changeLevel||"").toString().includes(lv)&&c.status!=="待評估");
       const subGroups=lv==="四"
         ?[{label:"第四級（不含列管）",cases:levelCases.filter(c=>c.status!=="列管中")},
           {label:"列管中心案",cases:levelCases.filter(c=>c.status==="列管中")}]
@@ -2845,6 +2846,21 @@ function MonthlyReport({data,setData,onSave}){
         checkGroups.push({label:g.label,items,maleP,femaleP,maleT,femaleT});
       });
     });
+    // 待評估獨立區塊（不分等級）
+    const pendingCases=(data.cases||[]).filter(c=>c.status==="待評估");
+    const pendingItems=[];
+    let pMaleP=0,pFemaleP=0,pMaleT=0,pFemaleT=0;
+    pendingCases.forEach(c=>{
+      const caseRecs=monthRecords.filter(r=>r.caseId===c.id);
+      if(caseRecs.length===0)return;
+      const times=caseRecs.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
+      pendingItems.push({name:c.name,caseNo:c.caseNo,gender:c.gender,status:c.status,count:caseRecs.length,times});
+      if(c.gender==="男"){pMaleP++;pMaleT+=times;}
+      else if(c.gender==="女"){pFemaleP++;pFemaleT+=times;}
+    });
+    if(pendingItems.length>0||pendingCases.length>0){
+      checkGroups.push({label:"待評估",items:pendingItems,maleP:pMaleP,femaleP:pFemaleP,maleT:pMaleT,femaleT:pFemaleT});
+    }
   }
 
   // 家訪統計（服務地點=案家）
@@ -2886,7 +2902,14 @@ function MonthlyReport({data,setData,onSave}){
   const caseNo=id=>data.cases.find(c=>c.id===id)?.caseNo||"";
 
   // 統計
-  const totalCount=records.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
+  const pendingIds=new Set((data.cases||[]).filter(c=>c.status==="待評估").map(c=>c.id));
+  let totalActive=0,totalPending=0;
+  records.forEach(r=>{
+    const v=parseInt(r.serviceCount||1);
+    if(pendingIds.has(r.caseId))totalPending+=v;
+    else totalActive+=v;
+  });
+  const totalCount=totalActive+totalPending;
   const byMethod={};
   records.forEach(r=>{
     const m=r.contactMethod||"其他";
@@ -2932,12 +2955,13 @@ function MonthlyReport({data,setData,onSave}){
       <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {[
           {label:"聯繫紀錄筆數",val:records.length,color:C.primary},
-          {label:"服務人次",val:totalCount,color:C.accent},
+          {label:"服務人次",val:totalCount,sub:totalPending>0?`開案 ${totalActive} + 待評估 ${totalPending}`:null,color:C.accent},
           {label:"服務個案數",val:caseCount,color:"#4A6E8A"},
-        ].map(({label,val,color})=>(
+        ].map(({label,val,color,sub})=>(
           <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",flex:1,minWidth:100}}>
             <div style={{fontSize:28,fontWeight:700,color,fontFamily:serif}}>{val}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:4}}>{label}</div>
+            {sub&&<div style={{fontSize:11,color:C.muted,marginTop:2,fontWeight:500}}>{sub}</div>}
           </div>
         ))}
       </div>
