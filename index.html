@@ -1233,6 +1233,7 @@ function CaseList({data,setData,onSave,onDelete}){
   const [selectMode,setSelectMode]=useState(false);
   const [contactPreview,setContactPreview]=useState(null);
   const [recordsCase,setRecordsCase]=useState(null);
+  const [showDuplicates,setShowDuplicates]=useState(false);
 
   const fld=(k,v)=>setForm(f=>{
     const next={...f,[k]:v};
@@ -1330,6 +1331,41 @@ function CaseList({data,setData,onSave,onDelete}){
     setTimeout(()=>setImportMsg(null),6000);
   };
 
+  // 找出重複個案
+  const duplicateGroups=[];
+  if(showDuplicates){
+    const byIdNo={};const byName={};const byCaseNo={};
+    (data.cases||[]).forEach(c=>{
+      const idNo=(c.idNo||"").trim().toUpperCase();
+      const name=(c.name||"").trim();
+      const caseNo=(c.caseNo||"").trim().toUpperCase();
+      const birth=(c.birthDate||"").trim();
+      if(idNo){byIdNo[idNo]=byIdNo[idNo]||[];byIdNo[idNo].push(c);}
+      if(name&&birth){const k=name+"|"+birth;byName[k]=byName[k]||[];byName[k].push(c);}
+      else if(name&&!idNo){byName[name]=byName[name]||[];byName[name].push(c);}
+      if(caseNo){byCaseNo[caseNo]=byCaseNo[caseNo]||[];byCaseNo[caseNo].push(c);}
+    });
+    const seen=new Set();
+    Object.entries(byIdNo).forEach(([k,arr])=>{
+      if(arr.length>1){
+        const ids=arr.map(c=>c.id).sort().join(",");
+        if(!seen.has(ids)){seen.add(ids);duplicateGroups.push({reason:"身分證字號相同",key:k,cases:arr});}
+      }
+    });
+    Object.entries(byName).forEach(([k,arr])=>{
+      if(arr.length>1){
+        const ids=arr.map(c=>c.id).sort().join(",");
+        if(!seen.has(ids)){seen.add(ids);duplicateGroups.push({reason:k.includes("|")?"姓名+生日相同":"姓名相同（無身分證可比對）",key:k,cases:arr});}
+      }
+    });
+    Object.entries(byCaseNo).forEach(([k,arr])=>{
+      if(arr.length>1){
+        const ids=arr.map(c=>c.id).sort().join(",");
+        if(!seen.has(ids)){seen.add(ids);duplicateGroups.push({reason:"案號相同",key:k,cases:arr});}
+      }
+    });
+  }
+
   const filtered=data.cases.filter(c=>(statusFilter==="all"||c.status===statusFilter)&&(c.name?.includes(search)||c.caseNo?.includes(search)||c.addr?.includes(search)||c.idNo?.includes(search)||c.disabilityType?.includes(search)));
   const stColor={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","列管中":"#8B6DB8"};
   // FRow moved outside as FormRow to prevent focus loss
@@ -1416,6 +1452,9 @@ function CaseList({data,setData,onSave,onDelete}){
         <H1>個案管理</H1>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
           <Btn variant="secondary" onClick={()=>{setShowImport(true);setShowForm(false);}}>📂 匯入 Excel</Btn>
+          <Btn variant={showDuplicates?"accent":"secondary"} onClick={()=>setShowDuplicates(v=>!v)}>
+            {showDuplicates?"隱藏重複":"🔍 找出重複"}
+          </Btn>
           <Btn variant={selectMode?"accent":"secondary"} onClick={()=>{setSelectMode(v=>!v);setSelectedIds(new Set());}}>
             {selectMode?"取消選取":"☑ 批次刪除"}
           </Btn>
@@ -1439,6 +1478,58 @@ function CaseList({data,setData,onSave,onDelete}){
         </div>
       )}
       {importMsg&&<div style={{background:"#E8F5E9",border:`1px solid #A5D6A7`,borderRadius:10,padding:"12px 18px",marginBottom:16,fontSize:13,color:"#2E7D32"}}>{importMsg}</div>}
+      {showDuplicates&&(
+        <div style={{background:"#FFF8ED",border:"2px solid #E0B060",borderRadius:12,padding:20,marginBottom:20}}>
+          <div style={{fontSize:15,fontWeight:700,color:"#7A5A20",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔍 重複個案偵測
+            <span style={{fontSize:12,fontWeight:500,color:C.muted,marginLeft:"auto"}}>共 {duplicateGroups.length} 組疑似重複</span>
+          </div>
+          {duplicateGroups.length===0
+            ?<div style={{fontSize:13,color:C.muted,padding:"10px 4px"}}>✅ 未發現重複個案</div>
+            :duplicateGroups.map((g,gi)=>(
+              <div key={gi} style={{marginBottom:14,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                <div style={{padding:"8px 14px",background:"#F0E8D5",fontSize:12,fontWeight:700,color:"#7A5A20"}}>
+                  ⚠️ {g.reason}：{g.key}
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  <thead>
+                    <tr style={{background:C.cardAlt}}>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>姓名</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>身分證</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>案號</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>生日</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>狀態</th>
+                      <th style={{padding:"6px 10px",textAlign:"right",color:C.muted,fontWeight:600}}>動作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.cases.map((cc,ci)=>(
+                      <tr key={ci} style={{borderBottom:ci<g.cases.length-1?`1px solid ${C.border}`:"none"}}>
+                        <td style={{padding:"8px 10px",color:C.text,fontWeight:600}}>{cc.name}</td>
+                        <td style={{padding:"8px 10px",color:C.muted,fontFamily:"monospace",fontSize:12}}>{cc.idNo||"—"}</td>
+                        <td style={{padding:"8px 10px",color:C.muted}}>{cc.caseNo||"—"}</td>
+                        <td style={{padding:"8px 10px",color:C.muted,fontSize:12}}>{cc.birthDate||"—"}</td>
+                        <td style={{padding:"8px 10px",textAlign:"center",fontSize:12,color:C.muted}}>{cc.status||"—"}</td>
+                        <td style={{padding:"8px 10px",textAlign:"right"}}>
+                          <button onClick={()=>setViewCase(cc)} style={{padding:"3px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.muted,fontSize:11,cursor:"pointer",marginRight:4}}>檢視</button>
+                          <button onClick={async()=>{
+                            if(!confirm("確定刪除個案「"+cc.name+"」（"+(cc.caseNo||"無案號")+"）嗎？此動作無法復原。"))return;
+                            setData(d=>({...d,cases:d.cases.filter(x=>x.id!==cc.id)}));
+                            if(onDelete)await onDelete("cases",cc.id);
+                          }} style={{padding:"3px 10px",borderRadius:6,border:"1px solid #E5C5C5",background:"#FFF4F4",color:"#C04545",fontSize:11,cursor:"pointer"}}>刪除</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))
+          }
+          <div style={{fontSize:11,color:C.muted,marginTop:12,lineHeight:1.6}}>
+            💡 偵測規則：身分證字號相同、姓名+生日相同、案號相同。請逐一檢查並刪除真正重複的個案。
+          </div>
+        </div>
+      )}
       {showForm&&(<Card style={{marginBottom:20}}>
   <div style={{fontSize:14,fontWeight:600,marginBottom:16}}>新增個案</div>
   <div style={{fontSize:12,color:C.muted,marginBottom:12,fontWeight:500}}>基本資料</div>
