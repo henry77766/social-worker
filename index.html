@@ -2581,6 +2581,8 @@ function MonthlyReport({data,setData,onSave}){
   const [viewId,setViewId]=useState(null);
   const [showCheck,setShowCheck]=useState(false);
   const [showHomeVisit,setShowHomeVisit]=useState(false);
+  const [showResources,setShowResources]=useState(false);
+  const [expandedResource,setExpandedResource]=useState(null);
 
   const exportExcel=()=>{
     const rows=[["日期","個案姓名","案號","聯繫對象","資源聯繫單位","聯繫方式","次數","聯繫內容"]];
@@ -2863,6 +2865,27 @@ function MonthlyReport({data,setData,onSave}){
     }
   }
 
+  // 本月等級異動清單
+  const monthLevelChanges=[];
+  if(showCheck){
+    const histInMonth=(data.levelHistory||[]).filter(h=>h.date?.startsWith(monthStr));
+    histInMonth.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+    histInMonth.forEach(h=>{
+      const c=(data.cases||[]).find(x=>x.id===h.caseId);
+      monthLevelChanges.push({
+        id:h.id,
+        date:h.date,
+        caseName:c?.name||h.caseName||"（未知）",
+        caseNo:c?.caseNo||"",
+        field:h.field,
+        from:h.from,
+        to:h.to,
+        note:h.note,
+        auto:h.auto
+      });
+    });
+  }
+
   // 家訪統計（服務地點=案家）
   const homeVisitStats={lv1:{cases:new Set(),times:0},lv2:{cases:new Set(),times:0},lv3:{cases:new Set(),times:0},lv4:{cases:new Set(),times:0},items:[]};
   if(showHomeVisit){
@@ -2890,6 +2913,39 @@ function MonthlyReport({data,setData,onSave}){
         homeVisitStats.items.push({caseId:c.id,name:c.name,caseNo:c.caseNo,changeLevel:c.changeLevel,count:1,times});
       }
     });
+  }
+
+  // 資源聯繫統計（聯繫對象=機構 或 專業團隊）
+  const resourceItems=[];
+  if(showResources){
+    const monthRecords=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr));
+    monthRecords.forEach(r=>{
+      const persons=r.contactPersons||[];
+      // 抓出該紀錄中所有「機構」「專業團隊」類型的對象
+      const resourcePersons=persons.filter(p=>p.type==="機構"||p.type==="專業團隊");
+      // 相容舊資料 contactPersonType
+      if(resourcePersons.length===0&&(r.contactPersonType==="機構"||r.contactPersonType==="專業團隊")){
+        resourcePersons.push({type:r.contactPersonType,name:r.contactPerson||""});
+      }
+      if(resourcePersons.length===0)return;
+      const c=(data.cases||[]).find(x=>x.id===r.caseId);
+      if(!c)return;
+      // 每個資源對象都算一筆
+      resourcePersons.forEach(p=>{
+        const unitName=p.name?`${p.type} ${p.name}`:p.type;
+        resourceItems.push({
+          caseId:c.id,
+          name:c.name||"",
+          changeLevel:c.changeLevel||"",
+          unit:unitName,
+          content:r.content||"",
+          date:r.date||"",
+          contactCount:parseInt(r.contactCount||1)
+        });
+      });
+    });
+    // 按姓名排序
+    resourceItems.sort((a,b)=>(a.name||"").localeCompare(b.name||"","zh-TW"));
   }
 
   // 篩選該月份的聯繫紀錄
@@ -2947,6 +3003,10 @@ function MonthlyReport({data,setData,onSave}){
           <button onClick={()=>setShowHomeVisit(v=>!v)}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showHomeVisit?"#C4824A":C.border}`,background:showHomeVisit?"#C4824A":"transparent",color:showHomeVisit?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             📊 {showHomeVisit?"隱藏家訪":"家訪統計"}
+          </button>
+          <button onClick={()=>setShowResources(v=>!v)}
+            style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showResources?"#3A5FAA":C.border}`,background:showResources?"#3A5FAA":"transparent",color:showResources?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            🔗 {showResources?"隱藏資源":"資源聯繫"}
           </button>
         </div>
       </div>
@@ -3035,6 +3095,58 @@ function MonthlyReport({data,setData,onSave}){
         </div>
       )}
 
+      {/* 資源聯繫統計面板 */}
+      {showResources&&(
+        <div style={{background:"#EFF4FB",border:"2px solid #4A78B0",borderRadius:12,padding:20,marginBottom:20}}>
+          <div style={{fontSize:15,fontWeight:700,color:"#3A5FAA",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
+            🔗 資源聯繫統計
+            <span style={{fontSize:12,fontWeight:500,color:C.muted,marginLeft:"auto"}}>共 {resourceItems.length} 筆 / {resourceItems.reduce((s,it)=>s+(it.contactCount||1),0)} 次</span>
+          </div>
+          {resourceItems.length===0
+            ?<div style={{fontSize:13,color:C.muted,padding:"10px 4px"}}>本月無資源聯繫紀錄</div>
+            :<div style={{background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"fixed"}}>
+                <colgroup>
+                  <col style={{width:"15%"}}/>
+                  <col style={{width:"8%"}}/>
+                  <col style={{width:"22%"}}/>
+                  <col style={{width:"55%"}}/>
+                </colgroup>
+                <thead>
+                  <tr style={{background:"#D8E4F2"}}>
+                    <th style={{padding:"8px 12px",textAlign:"left",color:"#3A5FAA",fontWeight:700}}>姓名</th>
+                    <th style={{padding:"8px 12px",textAlign:"center",color:"#3A5FAA",fontWeight:700}}>等級</th>
+                    <th style={{padding:"8px 12px",textAlign:"left",color:"#3A5FAA",fontWeight:700}}>聯繫單位</th>
+                    <th style={{padding:"8px 12px",textAlign:"left",color:"#3A5FAA",fontWeight:700}}>聯繫內容</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resourceItems.map((it,i)=>{
+                    const isExpanded=expandedResource===i;
+                    const isLong=(it.content||"").length>40;
+                    return(
+                      <tr key={i} onClick={()=>isLong&&setExpandedResource(isExpanded?null:i)}
+                        style={{borderBottom:`1px solid ${C.border}`,cursor:isLong?"pointer":"default",background:isExpanded?"#F5F9FF":"transparent"}}>
+                        <td style={{padding:"8px 12px",color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</td>
+                        <td style={{padding:"8px 12px",textAlign:"center",color:C.text}}>{it.changeLevel||"—"}</td>
+                        <td style={{padding:"8px 12px",color:"#3A5FAA",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.unit}</td>
+                        <td style={{padding:"8px 12px",color:C.muted,lineHeight:1.5,...(isExpanded?{whiteSpace:"pre-wrap",wordBreak:"break-word"}:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"})}}>
+                          {it.content||<span style={{color:C.border}}>—</span>}
+                          {isLong&&<span style={{color:"#3A5FAA",fontSize:11,marginLeft:6,fontWeight:600}}>{isExpanded?"▲ 收起":"▼ 展開"}</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          }
+          <div style={{fontSize:11,color:C.muted,marginTop:10,lineHeight:1.6}}>
+            💡 統計本月所有聯繫對象類型為「機構」或「專業團隊」的紀錄。同一個案多次聯繫同一單位每次都會列出，依姓名排序。
+          </div>
+        </div>
+      )}
+
       {/* 檢查計算面板 */}
       {showCheck&&(
           <div style={{background:"#FFF8ED",border:"2px solid #E0B060",borderRadius:12,padding:20,marginBottom:20}}>
@@ -3078,6 +3190,72 @@ function MonthlyReport({data,setData,onSave}){
                   </table>}
               </div>
             ))}
+            {monthLevelChanges.length>0&&(
+              <div style={{marginTop:16,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                <div style={{padding:"10px 14px",background:"#F0E8D5",fontSize:13,fontWeight:700,color:"#7A5A20",display:"flex",alignItems:"center",gap:6}}>
+                  📋 本月等級異動清單（{monthLevelChanges.length} 筆）
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{background:C.cardAlt}}>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>日期</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>個案</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>案號</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>類型</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>變動前</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>變動後</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>備註</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthLevelChanges.map((h,i)=>(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:"6px 10px",color:C.text,fontFamily:"monospace",fontSize:11}}>{fmtDate(h.date)}</td>
+                        <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{h.caseName}</td>
+                        <td style={{padding:"6px 10px",color:C.muted}}>{h.caseNo||"—"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{h.field==="systemLevel"?"系統":h.field==="initialLevel"?"起始":"異動"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center"}}>{h.from?<span style={{padding:"1px 8px",borderRadius:20,background:"#FFF0F0",color:"#A06060",fontSize:11,fontWeight:600}}>{h.from}</span>:<span style={{color:C.muted}}>—</span>}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center"}}><span style={{padding:"1px 8px",borderRadius:20,background:"#FFF4E0",color:C.accent,fontSize:11,fontWeight:700}}>{h.to}</span></td>
+                        <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{h.note||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {monthLevelChanges.length>0&&(
+              <div style={{marginTop:16,background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
+                <div style={{padding:"10px 14px",background:"#E8F0FB",fontSize:13,fontWeight:700,color:"#3A5FAA",display:"flex",alignItems:"center",gap:6}}>
+                  📋 本月等級異動 — {monthLevelChanges.length} 筆
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{background:C.cardAlt}}>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>日期</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>個案</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>案號</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>類型</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>異動前</th>
+                      <th style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontWeight:600}}>異動後</th>
+                      <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>備註</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthLevelChanges.map((h,i)=>(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:"6px 10px",color:C.text}}>{fmtDate(h.date)}</td>
+                        <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{h.caseName}</td>
+                        <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{h.caseNo||"—"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{h.field==="systemLevel"?"系統分案":h.field==="initialLevel"?"個案起始":"現在等級"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center"}}>{h.from?<span style={{padding:"1px 8px",borderRadius:20,background:"#FFF0F0",color:"#A06060",fontSize:11,fontWeight:600}}>{h.from}</span>:<span style={{color:C.muted}}>—</span>}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center"}}><span style={{padding:"1px 8px",borderRadius:20,background:"#E8F5EE",color:"#2A7A4A",fontSize:11,fontWeight:700}}>{h.to||"—"}</span></td>
+                        <td style={{padding:"6px 10px",color:C.muted,fontSize:11}}>{h.note||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {uncategorized.items.length>0&&(
               <div style={{marginTop:16,background:"#FFF0F0",border:"2px solid #D04545",borderRadius:8,overflow:"hidden"}}>
                 <div style={{padding:"10px 14px",background:"#FFE0E0",fontSize:13,fontWeight:700,color:"#A03030",display:"flex",alignItems:"center",gap:6}}>
