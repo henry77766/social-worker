@@ -783,7 +783,7 @@ function Dashboard({data,setView,setData,onSave}){
   const openCount=data.cases.filter(c=>c.status==="開案中").length;
   const managedCount=data.cases.filter(c=>c.status==="列管中").length;
   const mo=new Date().toISOString().slice(0,7);
-  const moVisits=data.visits.filter(v=>v.date?.startsWith(mo)).length;
+  const moVisits=(data.caseRecords||[]).filter(r=>r.date?.startsWith(mo)&&["家訪","外訪","晤談","陪同"].includes(r.contactMethod)).length;
   const todayLog=data.diary.find(d=>d.date===toDay());
   const recent=[...data.visits].sort((a,b)=>(b.date||"").localeCompare(a.date||"")).slice(0,5);
   const Stat=({label,val,sub,color})=>(<div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:"20px 24px",flex:1,minWidth:120}}><div style={{fontSize:30,fontWeight:700,color:color||C.primary,fontFamily:serif,lineHeight:1}}>{val}</div><div style={{fontSize:13,fontWeight:600,color:C.text,marginTop:6}}>{label}</div>{sub&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{sub}</div>}</div>);
@@ -3107,10 +3107,10 @@ function MonthlyReport({data,setData,onSave}){
             :<div style={{background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,tableLayout:"fixed"}}>
                 <colgroup>
-                  <col style={{width:"15%"}}/>
-                  <col style={{width:"8%"}}/>
-                  <col style={{width:"22%"}}/>
-                  <col style={{width:"55%"}}/>
+                  <col style={{width:"12%"}}/>
+                  <col style={{width:"6%"}}/>
+                  <col style={{width:"30%"}}/>
+                  <col style={{width:"52%"}}/>
                 </colgroup>
                 <thead>
                   <tr style={{background:"#D8E4F2"}}>
@@ -3123,16 +3123,16 @@ function MonthlyReport({data,setData,onSave}){
                 <tbody>
                   {resourceItems.map((it,i)=>{
                     const isExpanded=expandedResource===i;
-                    const isLong=(it.content||"").length>40;
+                    const hasContent=!!(it.content);
                     return(
-                      <tr key={i} onClick={()=>isLong&&setExpandedResource(isExpanded?null:i)}
-                        style={{borderBottom:`1px solid ${C.border}`,cursor:isLong?"pointer":"default",background:isExpanded?"#F5F9FF":"transparent"}}>
+                      <tr key={i} onClick={()=>hasContent&&setExpandedResource(isExpanded?null:i)}
+                        style={{borderBottom:`1px solid ${C.border}`,cursor:hasContent?"pointer":"default",background:isExpanded?"#F5F9FF":"transparent"}}>
                         <td style={{padding:"8px 12px",color:C.text,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name}</td>
                         <td style={{padding:"8px 12px",textAlign:"center",color:C.text}}>{it.changeLevel||"—"}</td>
-                        <td style={{padding:"8px 12px",color:"#3A5FAA",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.unit}</td>
+                        <td style={{padding:"8px 12px",color:"#3A5FAA",fontWeight:600,wordBreak:"break-word"}}>{it.unit}</td>
                         <td style={{padding:"8px 12px",color:C.muted,lineHeight:1.5,...(isExpanded?{whiteSpace:"pre-wrap",wordBreak:"break-word"}:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"})}}>
                           {it.content||<span style={{color:C.border}}>—</span>}
-                          {isLong&&<span style={{color:"#3A5FAA",fontSize:11,marginLeft:6,fontWeight:600}}>{isExpanded?"▲ 收起":"▼ 展開"}</span>}
+                          {hasContent&&<span style={{color:"#3A5FAA",fontSize:11,marginLeft:6,fontWeight:600}}>{isExpanded?"▲ 收起":"▼ 展開"}</span>}
                         </td>
                       </tr>
                     );
