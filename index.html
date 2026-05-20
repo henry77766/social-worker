@@ -2671,12 +2671,12 @@ function MonthlyReport({data,setData,onSave}){
         "莊子昂",           // 主責社工
         "","","","","","", // 個案等級異動前後、派案、開案
         "","","",          // 服務類型
-        ...methodCols.map(col=>col===method?"1":""),
-        ...locationCols.map(col=>col===loc?"1":""),
-        ...personTypes.map(pt=>persons.includes(pt)?"1":""),
+        ...methodCols.map(col=>col===method?1:""),
+        ...locationCols.map(col=>col===loc?1:""),
+        ...personTypes.map(pt=>persons.includes(pt)?1:""),
         "","","",          // 撰寫個案紀錄：初評表、個摘表、需求評估
-        "1",               // 撰寫個案紀錄：個案紀錄
-        ...serviceTypeCols.map(col=>col===svcType?"1":""),
+        1,               // 撰寫個案紀錄：個案紀錄
+        ...serviceTypeCols.map(col=>col===svcType?1:""),
         r.content||""      // 提供內容說明
       ]);
     });
