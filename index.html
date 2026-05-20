@@ -2578,6 +2578,7 @@ function MonthlyReport({data,setData,onSave}){
   const rocYear=year-1911;
   const [editId,setEditId]=useState(null);
   const [filterMethod,setFilterMethod]=useState(null);
+  const [searchQuery,setSearchQuery]=useState("");
   const [viewId,setViewId]=useState(null);
   const [showCheck,setShowCheck]=useState(false);
   const [showHomeVisit,setShowHomeVisit]=useState(false);
@@ -3303,6 +3304,19 @@ function MonthlyReport({data,setData,onSave}){
           </div>
       )}
 
+      {/* 搜尋欄 */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:16}}>🔍</span>
+        <input
+          type="text"
+          placeholder="搜尋個案姓名或案號…"
+          value={searchQuery}
+          onChange={e=>setSearchQuery(e.target.value)}
+          style={{flex:1,border:"none",outline:"none",fontSize:14,background:"transparent",color:C.text,fontFamily:font}}
+        />
+        {searchQuery&&<button onClick={()=>setSearchQuery("")} style={{background:"none",border:"none",cursor:"pointer",color:C.muted,fontSize:13,padding:"0 4px"}}>✕</button>}
+      </div>
+
       {/* 聯繫方式統計 */}
       {Object.keys(byMethod).length>0&&(
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",marginBottom:20}}>
@@ -3335,7 +3349,7 @@ function MonthlyReport({data,setData,onSave}){
             <div style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
               <span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
             </div>
-            {(filterMethod?records.filter(r=>r.contactMethod===filterMethod):records).map((r,i)=>(
+            {(filterMethod||searchQuery?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||(caseNo(r.caseId).includes(searchQuery))):true)):records).map((r,i)=>(
               editId===r.id
               ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10,borderLeft:`3px solid ${C.accent}`}}>
                   <div style={{fontSize:12,fontWeight:600,color:C.accent,marginBottom:2}}>編輯紀錄 — {caseName(r.caseId)}</div>
@@ -3480,7 +3494,7 @@ function MonthlyReport({data,setData,onSave}){
                 </div>
             ))}
             {(()=>{
-              const shown=filterMethod?records.filter(r=>r.contactMethod===filterMethod):records;
+              const shown=(filterMethod||searchQuery)?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||caseNo(r.caseId).includes(searchQuery)):true)):records;
               const shownCount=shown.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
               const shownCases=new Set(shown.map(r=>r.caseId)).size;
               return(
