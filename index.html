@@ -303,6 +303,34 @@ async function fbDelete(collection,id){
   await userCol(collection).doc(id).delete();
 }
 
+// ── 全部資料備份（匯出 JSON）─────────────────────────────────────
+const BACKUP_COLS=["cases","visits","resources","diary","events","caseRecords","levelHistory"];
+async function exportBackup(){
+  if(!db)throw new Error("尚未連線雲端");
+  const data={},counts={};
+  let total=0;
+  for(const col of BACKUP_COLS){
+    const rows=await fbGet(col);
+    data[col]=rows;
+    counts[col]=rows.length;
+    total+=rows.length;
+  }
+  const payload={version:1,exportedAt:new Date().toISOString(),uid:getUid(),counts,data};
+  const d=new Date();
+  const p=n=>String(n).padStart(2,"0");
+  const stamp=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`社工工作站備份_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  return total;
+}
+
 // ── LOGIN SCREEN ─────────────────────────────────────────────────
 function LoginScreen({onLogin}){
   const [email,setEmail]=useState("");
@@ -3518,6 +3546,18 @@ function UserSettings({userName,onSave,onClose}){
   const [clientId,setClientId]=useState("");
   const [saving,setSaving]=useState(false);
   const [done,setDone]=useState(false);
+  const [backing,setBacking]=useState(false);
+  const [backupMsg,setBackupMsg]=useState("");
+
+  const handleBackup=async()=>{
+    setBacking(true);setBackupMsg("");
+    try{
+      const total=await exportBackup();
+      setBackupMsg(`✓ 已下載備份，共 ${total} 筆資料`);
+    }catch(e){
+      setBackupMsg("✕ 備份失敗："+(e.message||"請稍後再試"));
+    }finally{setBacking(false);}
+  };
 
   const handleSave=async()=>{
     if(!name.trim()){alert("請填寫名稱");return;}
@@ -3541,6 +3581,19 @@ function UserSettings({userName,onSave,onClose}){
             style={{...inp(),fontSize:15,marginBottom:8}}
             onKeyDown={e=>e.key==="Enter"&&handleSave()}/>
           <div style={{fontSize:11,color:C.muted,marginBottom:20}}>此名稱會顯示在登入畫面、側邊欄及聯繫紀錄中</div>
+
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18,marginBottom:20}}>
+            <label style={{fontSize:12,color:C.muted,display:"block",marginBottom:8,fontWeight:500}}>資料備份</label>
+            <button onClick={handleBackup} disabled={backing}
+              style={{width:"100%",padding:"10px 16px",borderRadius:8,border:`1px solid ${C.border}`,background:C.cardAlt,color:C.text,cursor:backing?"default":"pointer",fontSize:13,fontFamily:font,fontWeight:600,opacity:backing?0.6:1}}>
+              {backing?"備份中…":"💾 下載完整備份 (JSON)"}
+            </button>
+            {backupMsg&&<div style={{fontSize:12,marginTop:8,color:backupMsg.startsWith("✓")?"#2A9D5C":"#C0392B"}}>{backupMsg}</div>}
+            <div style={{fontSize:11,color:C.muted,marginTop:8,lineHeight:1.6}}>
+              匯出全部個案、聯繫紀錄、資源與日誌，存成一個 JSON 檔。建議每月報表完成後執行一次，並存放於安全位置。
+            </div>
+          </div>
+
           
           {done
             ? <div style={{textAlign:"center",color:"#2A9D5C",fontWeight:600,fontSize:14}}>✓ 已儲存！</div>
