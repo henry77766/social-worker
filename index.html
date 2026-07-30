@@ -686,7 +686,7 @@ function QuickRecordPanel({data,setData,onSave}){
             </div>
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>聯繫方式</label>
-              <select value={form.contactMethod} onChange={e=>{fld("contactMethod",e.target.value);fld("timeRange","");}} style={inp({fontSize:13})}>
+              <select value={form.contactMethod} onChange={e=>{const v=e.target.value;fld("contactMethod",v);fld("timeRange","");if(v==="家訪"&&!form.serviceLocation)fld("serviceLocation","案家");}} style={inp({fontSize:13})}>
                 {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
               </select>
             </div>
@@ -787,6 +787,11 @@ function QuickRecordPanel({data,setData,onSave}){
               <option value="外機構">外機構</option>
               <option value="其他">其他</option>
             </select>
+            {form.contactMethod==="家訪"&&form.serviceLocation&&form.serviceLocation!=="案家"&&(
+              <div style={{fontSize:11,color:"#C4824A",marginTop:4,lineHeight:1.5}}>
+                ⚠️ 方式為「家訪」但地點非「案家」，家訪統計不會計入此筆
+              </div>
+            )}
           </div>
           {/* 內容 - 全寬 */}
           <div>
@@ -2421,7 +2426,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               </div>
               <div>
                 <Label>聯繫方式</Label>
-                <select value={addRec.contactMethod} onChange={e=>fldAdd("contactMethod",e.target.value)} style={inp()}>
+                <select value={addRec.contactMethod} onChange={e=>{const v=e.target.value;fldAdd("contactMethod",v);if(v==="家訪"&&!addRec.serviceLocation)fldAdd("serviceLocation","案家");}} style={inp()}>
                   {CONTACT_METHODS.map(m=><option key={m}>{m}</option>)}
                 </select>
               </div>
@@ -2523,7 +2528,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               <td style={{padding:"8px 12px"}}><input type="date" value={editRec.date||""} onChange={e=>fldEdit("date",e.target.value)} style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
               <td style={{padding:"8px 12px"}}><input value={editRec.contactPerson||""} onChange={e=>fldEdit("contactPerson",e.target.value)} placeholder="聯繫對象" style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
               <td style={{padding:"8px 12px"}}><input value={editRec.resourceUnit||""} onChange={e=>fldEdit("resourceUnit",e.target.value)} placeholder="資源聯繫單位" style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
-              <td style={{padding:"8px 12px"}}><select value={editRec.contactMethod||"電訪"} onChange={e=>fldEdit("contactMethod",e.target.value)} style={{...inp(),fontSize:13,padding:"6px 8px"}}>{CONTACT_METHODS.map(m=><option key={m}>{m}</option>)}</select></td>
+              <td style={{padding:"8px 12px"}}><select value={editRec.contactMethod||"電訪"} onChange={e=>{const v=e.target.value;fldEdit("contactMethod",v);if(v==="家訪"&&!editRec.serviceLocation)fldEdit("serviceLocation","案家");}} style={{...inp(),fontSize:13,padding:"6px 8px"}}>{CONTACT_METHODS.map(m=><option key={m}>{m}</option>)}</select></td>
               <td style={{padding:"8px 12px"}}><input type="number" min="1" value={editRec.contactCount||"1"} onChange={e=>fldEdit("contactCount",e.target.value)} style={{...inp(),fontSize:13,padding:"6px 8px",width:64}}/></td>
               <td style={{padding:"8px 12px",whiteSpace:"nowrap"}}><div style={{display:"flex",gap:6}}><button onClick={handleEdit} style={{padding:"5px 12px",borderRadius:6,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontFamily:font}}>儲存</button><button onClick={()=>setEditId(null)} style={{padding:"5px 10px",borderRadius:6,background:C.cardAlt,color:C.text,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,fontFamily:font}}>取消</button></div></td>
             </tr>
@@ -3446,7 +3451,7 @@ function MonthlyReport({data,setData,onSave}){
                     <div style={{display:"flex",gap:8}}>
                       <div style={{flex:2}}>
                         <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫方式</label>
-                        <select value={editRec.contactMethod||"電訪"} onChange={e=>{fldEdit("contactMethod",e.target.value);fldEdit("timeRange","");}} style={{...inp(),fontSize:13}}>
+                        <select value={editRec.contactMethod||"電訪"} onChange={e=>{const v=e.target.value;fldEdit("contactMethod",v);fldEdit("timeRange","");if(v==="家訪"&&!editRec.serviceLocation)fldEdit("serviceLocation","案家");}} style={{...inp(),fontSize:13}}>
                           {["電訪","家訪","晤談","外訪","代辦","陪同","簡訊","個研","函件","其他"].map(m=><option key={m}>{m}</option>)}
                         </select>
                       </div>
