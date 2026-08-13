@@ -158,6 +158,16 @@ function getHolidayName(dateStr,holidays){
   return holidays[dateStr]||null;
 }
 
+function calcAgeYears(birthDate){
+  if(!birthDate)return null;
+  const bd=new Date(birthDate+"T00:00:00");
+  if(isNaN(bd))return null;
+  const now=new Date();
+  let y=now.getFullYear()-bd.getFullYear();
+  const m=now.getMonth()-bd.getMonth();
+  if(m<0||(m===0&&now.getDate()<bd.getDate()))y--;
+  return y<0?null:y;
+}
 function calcAgeFromDate(birthDate){
   if(!birthDate)return"";
   const bd=new Date(birthDate+"T00:00:00");
@@ -469,6 +479,7 @@ const FIELD_DEFS=[
   {key:"birthDate",   label:"出生日期"},
   {key:"age",         label:"年齡"},
   {key:"disabilityType",  label:"新制障別"},
+  {key:"disabilitySub",   label:"細分障別"},
   {key:"disabilityLevel", label:"障礙等級"},
   {key:"registeredAddr",  label:"戶籍地址"},
   {key:"addr",        label:"居住地址"},
@@ -482,7 +493,6 @@ const FIELD_DEFS=[
   {key:"openDate",    label:"開案時間"},
   {key:"systemLevel", label:"系統分案等級"},
   {key:"initialLevel",label:"個案起始等級"},
-  {key:"visitFreq",   label:"基本頻率"},
   {key:"changeLevel", label:"現在等級"},
   {key:"phone",           label:"本人電話"},
   {key:"phone2",          label:"備用電話"},
@@ -502,6 +512,7 @@ const AUTO_MATCH={
   birthDate:     ["出生日期","生日","出生年月日","年次","出生年次"],
   age:           ["年齡"],
   disabilityType:["新制障別","障礙類別","障別"],
+  disabilitySub: ["細分障別","障別細項","舊制障別"],
   disabilityLevel:["障礙等級","障礙程度"],
   registeredAddr:["戶籍地址","戶籍地","戶籍"],
   addr:          ["居住地址","居住地","住址","地址","實際住址"],
@@ -578,7 +589,7 @@ function ExcelImporter({onImport,onClose}){
   const doImport=()=>{
     if(!mapping["name"]){alert("請先對應「姓名」欄位");return;}
     const imported=rows.map(r=>{
-      const c={id:uid(),name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
+      const c={id:uid(),name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
       FIELD_DEFS.forEach(({key})=>{if(mapping[key]!=null&&mapping[key]!==""){const val=r[parseInt(mapping[key])];if(DATE_KEYS.has(key)){c[key]=parseExcelDate(val);}
           else if(key==="disabilityType"){const r=parseDisabilityType(val);c.disabilityType=r.type;c.disabilityDetail=r.detail;}
           else{c[key]=val!=null?String(val).trim():"";}}});
@@ -867,10 +878,80 @@ function FormRow({label, field, type="text", opts, span=1, value, onChange}){
   );
 }
 
+// ── 障別欄位（大類 + 細分 / 多重障複選）─────────────────────────
+function DisabilityFields({form, fld}){
+  const [pickCat,setPickCat]=useState("");
+  const [pickSub,setPickSub]=useState("");
+  const isMulti=form.disabilityType==="多重障";
+  const subs=DISABILITY_SUBS[form.disabilityType]||[];
+  const chosen=(form.disabilityDetail||"").split("＋").filter(Boolean);
+
+  const addSub=(v)=>{
+    if(!v)return;
+    if(!chosen.includes(v)) fld("disabilityDetail",[...chosen,v].join("＋"));
+    setPickCat("");setPickSub("");
+  };
+  const removeSub=(v)=>fld("disabilityDetail",chosen.filter(x=>x!==v).join("＋"));
+
+  return(
+    <div>
+      <Label>新制障別</Label>
+      <select value={form.disabilityType||""} onChange={e=>{
+        fld("disabilityType",e.target.value);
+        fld("disabilityDetail","");
+        fld("disabilitySub","");
+        setPickCat("");setPickSub("");
+      }} style={inp()}>
+        {DISABILITY_TYPES.map(o=><option key={o} value={o}>{o}</option>)}
+      </select>
+
+      {!isMulti&&subs.length>0&&(
+        <div style={{marginTop:8}}>
+          <Label>細分障別</Label>
+          <select value={form.disabilitySub||""} onChange={e=>fld("disabilitySub",e.target.value)} style={inp()}>
+            <option value="">（未選）</option>
+            {subs.map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      )}
+
+      {isMulti&&(
+        <div style={{marginTop:8}}>
+          <div style={{fontSize:11,color:C.muted,marginBottom:6}}>加入障別（選完即加入，可重複加）：</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+            <select value={pickCat} onChange={e=>{setPickCat(e.target.value);setPickSub("");}}
+              style={{...inp(),fontSize:13,width:"auto",flex:"1 1 90px"}}>
+              <option value="">選類別...</option>
+              {DISABILITY_CATS.map(o=><option key={o} value={o}>{o}</option>)}
+            </select>
+            <select value={pickSub} onChange={e=>addSub(e.target.value)} disabled={!pickCat}
+              style={{...inp(),fontSize:13,width:"auto",flex:"2 1 160px",opacity:pickCat?1:0.5}}>
+              <option value="">選障別...</option>
+              {(DISABILITY_SUBS[pickCat]||[]).map(o=><option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+          {chosen.length>0&&(
+            <div style={{marginTop:8,display:"flex",flexWrap:"wrap",gap:6}}>
+              {chosen.map(v=>(
+                <span key={v} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:20,background:C.cardAlt,border:`1px solid ${C.border}`,fontSize:12,color:C.text}}>
+                  {v}
+                  <span onClick={()=>removeSub(v)} style={{cursor:"pointer",color:C.muted,fontWeight:700}}>✕</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {chosen.length===0&&<div style={{fontSize:11,color:C.muted,marginTop:6}}>尚未選擇</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── CASE EDIT MODAL ──────────────────────────────────────────────
 function CaseEditModal({caseData, onSave, onClose}){
   const [form, setForm] = useState({...caseData});
   const [saving, setSaving] = useState(false);
+  const [showIntake, setShowIntake] = useState(false);
   const fld = (k,v) => setForm(f=>{
     const next={...f,[k]:v};
     if(k==="birthDate")next.age=calcAgeFromDate(v);
@@ -943,34 +1024,9 @@ function CaseEditModal({caseData, onSave, onClose}){
                 placeholder={form.birthDate?"依出生日期自動計算":"手動輸入"}
                 style={{...inp(),background:form.birthDate?"#F0F7F4":"",color:form.birthDate?C.primary:C.text}}/>
             </div>
-            <div>
-      <Label>新制障別</Label>
-      <select value={form.disabilityType||""} onChange={e=>{fld("disabilityType",e.target.value);if(e.target.value!=="多重障")fld("disabilityDetail","");}} style={inp()}>
-        {DISABILITY_TYPES.map(o=><option key={o} value={o}>{o}</option>)}
-      </select>
-      {form.disabilityType==="多重障"&&(
-        <div style={{marginTop:8}}>
-          <div style={{fontSize:11,color:C.muted,marginBottom:6}}>選擇合併的障別類別：</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {[1,2,3,4,5,6,7,8].map(n=>{
-              const label="第"+n+"類";
-              const selected=(form.disabilityDetail||"").includes(label);
-              return(
-                <button key={n} type="button" onClick={()=>{
-                  const cur=(form.disabilityDetail||"").split("＋").filter(Boolean);
-                  const next=selected?cur.filter(x=>x!==label):[...cur,label].sort();
-                  fld("disabilityDetail",next.join("＋"));
-                }} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${selected?C.primary:C.border}`,background:selected?C.primary:C.cardAlt,color:selected?"#fff":C.text,cursor:"pointer",fontSize:12,fontFamily:font}}>
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {form.disabilityDetail&&<div style={{fontSize:12,color:C.primary,marginTop:6}}>{form.disabilityDetail}</div>}
-        </div>
-      )}
-    </div>
+            <DisabilityFields form={form} fld={fld}/>
             <FormRow label="障礙等級" field="disabilityLevel" value={form["disabilityLevel"]} onChange={fld} opts={["","輕度","中度","重度","極重度"]}/>
+            <FormRow label="現在等級" field="changeLevel" value={form["changeLevel"]} onChange={fld} opts={["","一","二","三","四","A","B","C"]}/>
           </div>
 
           <SectionTitle>地址與居住</SectionTitle>
@@ -991,8 +1047,10 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="緊急聯絡電話" field="emergencyPhone" value={form["emergencyPhone"]} onChange={fld}/>
           </div>
 
-          <SectionTitle>進案資訊</SectionTitle>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:20}}>
+          <div onClick={()=>setShowIntake(v=>!v)} style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${C.border}`,letterSpacing:"0.04em",cursor:"pointer",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
+            <span style={{fontSize:10}}>{showIntake?"▼":"▶"}</span>進案資訊<span style={{fontWeight:400,fontSize:11}}>（{showIntake?"點擊收起":"點擊展開"}）</span>
+          </div>
+          <div style={{display:showIntake?"grid":"none",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:20}}>
             <FormRow label="來源" field="source" value={form["source"]} onChange={fld}/>
             <FormRow label="轉介單位" field="referralUnit" value={form["referralUnit"]} onChange={fld}/>
             <FormRow label="進案時間" field="caseInDate" value={form["caseInDate"]} onChange={fld} type="date"/>
@@ -1001,8 +1059,6 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="開案時間" field="openDate" value={form["openDate"]} onChange={fld} type="date"/>
             <FormRow label="系統分案等級" field="systemLevel" value={form["systemLevel"]} onChange={fld}/>
             <FormRow label="個案起始等級" field="initialLevel" value={form["initialLevel"]} onChange={fld}/>
-            <FormRow label="基本頻率" field="visitFreq" value={form["visitFreq"]} onChange={fld}/>
-            <FormRow label="現在等級" field="changeLevel" value={form["changeLevel"]} onChange={fld}/>
             <FormRow label="主責社工" field="mainWorker" value={form["mainWorker"]} onChange={fld}/>
             <div style={{gridColumn:"span 2"}}>
               <Label>簡要服務紀錄</Label>
@@ -1064,7 +1120,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
             <Row label="身分證字號" val={c.idNo}/>
             <Row label="生理性別" val={c.gender}/>
             <Row label="出生日期／年齡" val={c.birthDate?`${fmtDate(c.birthDate)}${c.age?`・${c.age}歲`:""}`:c.age?`${c.age}歲`:null}/>
-            <Row label="新制障別" val={c.disabilityType==="多重障"?`多重障（${c.disabilityDetail||"未填"}）`:c.disabilityType}/>
+            <Row label="新制障別" val={c.disabilityType==="多重障"?`多重障（${c.disabilityDetail||"未填"}）`:(c.disabilitySub?`${c.disabilityType}－${c.disabilitySub}`:c.disabilityType)}/>
           </div>
           <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>地址與居住</div>
             <Row label="戶籍地" val={c.registeredAddr}/>
@@ -1083,7 +1139,6 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
             <Row label="系統分案等級" val={c.systemLevel}/>
             <Row label="個案起始等級" val={c.initialLevel}/>
             <Row label="現在等級" val={c.changeLevel}/>
-            <Row label="基本頻率" val={c.visitFreq}/>
             <Row label="主責社工" val={c.mainWorker}/>
           </div>
           {c.note&&(
@@ -1253,10 +1308,22 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
 const CASE_STATUS=["開案中","待評估","結案","列管中"];
 const DISABILITY_LEVELS=["輕度","中度","重度","極重度"];
 const DISABILITY_TYPES=["","第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障"];
+const DISABILITY_SUBS={
+  "第1類":["智能障礙","植物人","失智症","自閉症","慢性精神病","頑性癲癇"],
+  "第2類":["視覺障礙","聽覺機能障礙","平衡機能障礙"],
+  "第3類":["聲音機能或語言機能障礙"],
+  "第4類":["重要器官失去功能者-心臟","重要器官失去功能者-造血機能","重要器官失去功能者-呼吸器官"],
+  "第5類":["重要器官失去功能者-吞嚥機能","重要器官失去功能者-胃","重要器官失去功能者-腸道","重要器官失去功能者-肝臟"],
+  "第6類":["重要器官失去功能者-腎臟","重要器官失去功能者-膀胱"],
+  "第7類":["肢體障礙"],
+  "第8類":["顏面損傷"],
+};
+const DISABILITY_CATS=["第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類"];
 
 function CaseList({data,setData,onSave,onDelete}){
-  const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",visitFreq:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
+  const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
   const [showForm,setShowForm]=useState(false);
+  const [showIntake,setShowIntake]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [form,setForm]=useState(blank);
   const [search,setSearch]=useState("");
@@ -1266,6 +1333,9 @@ function CaseList({data,setData,onSave,onDelete}){
   const [viewCase,setViewCase]=useState(null);
   const [statusFilter,setStatusFilter]=useState("all");
   const [groupBy,setGroupBy]=useState("none");
+  const [openGroups,setOpenGroups]=useState({});
+  const [showCompleteness,setShowCompleteness]=useState(false);
+  const [showMore,setShowMore]=useState(false);
   const [selectedIds,setSelectedIds]=useState(new Set());
   const [selectMode,setSelectMode]=useState(false);
   const [contactPreview,setContactPreview]=useState(null);
@@ -1488,14 +1558,38 @@ function CaseList({data,setData,onSave,onDelete}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:selectMode?12:24,flexWrap:"wrap",gap:10}}>
         <H1>個案管理</H1>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          <Btn variant="secondary" onClick={()=>{setShowImport(true);setShowForm(false);}}>📂 匯入 Excel</Btn>
-          <Btn variant={showDuplicates?"accent":"secondary"} onClick={()=>setShowDuplicates(v=>!v)}>
-            {showDuplicates?"隱藏重複":"🔍 找出重複"}
-          </Btn>
-          <Btn variant={selectMode?"accent":"secondary"} onClick={()=>{setSelectMode(v=>!v);setSelectedIds(new Set());}}>
-            {selectMode?"取消選取":"☑ 批次刪除"}
+          <Btn variant={showCompleteness?"accent":"secondary"} onClick={()=>setShowCompleteness(v=>!v)}>
+            {showCompleteness?"隱藏完整度":"📊 資料完整度"}
           </Btn>
           {!selectMode&&<Btn variant={showForm?"secondary":"primary"} onClick={()=>setShowForm(v=>!v)}>{showForm?"取消":"+ 新增個案"}</Btn>}
+          <div style={{position:"relative"}}>
+            <Btn variant={(showDuplicates||selectMode)?"accent":"secondary"} onClick={()=>setShowMore(v=>!v)}>
+              ⋯{(showDuplicates||selectMode)?" ●":""}
+            </Btn>
+            {showMore&&(
+              <>
+                <div onClick={()=>setShowMore(false)} style={{position:"fixed",inset:0,zIndex:20}}/>
+                <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,zIndex:21,maxWidth:"calc(100vw - 32px)",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",padding:6,minWidth:170}}>
+                  {[
+                    {label:"📂 匯入 Excel", active:false,
+                     fn:()=>{setShowImport(true);setShowForm(false);}},
+                    {label:showDuplicates?"隱藏重複":"🔍 找出重複", active:showDuplicates,
+                     fn:()=>setShowDuplicates(v=>!v)},
+                    {label:selectMode?"取消選取":"☑ 批次刪除", active:selectMode,
+                     fn:()=>{setSelectMode(v=>!v);setSelectedIds(new Set());}},
+                  ].map(it=>(
+                    <div key={it.label} onClick={()=>{it.fn();setShowMore(false);}}
+                      style={{padding:"9px 12px",borderRadius:7,cursor:"pointer",fontSize:13,fontFamily:font,whiteSpace:"nowrap",
+                        color:it.active?C.primary:C.text,fontWeight:it.active?600:400,background:it.active?"#E8F5EE":"transparent"}}
+                      onMouseEnter={e=>{if(!it.active)e.currentTarget.style.background=C.cardAlt;}}
+                      onMouseLeave={e=>{if(!it.active)e.currentTarget.style.background="transparent";}}>
+                      {it.label}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1606,34 +1700,9 @@ function CaseList({data,setData,onSave,onDelete}){
         placeholder={form["birthDate"]?"依出生日期自動計算":"手動輸入"}
         style={{...inp(),background:form["birthDate"]?"#F0F7F4":"",color:form["birthDate"]?C.primary:C.text}}/>
     </div>
-    <div>
-              <Label>新制障別</Label>
-              <select value={form.disabilityType||""} onChange={e=>{fld("disabilityType",e.target.value);if(e.target.value!=="多重障")fld("disabilityDetail","");}} style={inp()}>
-                {DISABILITY_TYPES.map(o=><option key={o} value={o}>{o}</option>)}
-              </select>
-              {form.disabilityType==="多重障"&&(
-                <div style={{marginTop:8}}>
-                  <div style={{fontSize:11,color:C.muted,marginBottom:6}}>選擇合併的障別類別：</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                    {[1,2,3,4,5,6,7,8].map(n=>{
-                      const label="第"+n+"類";
-                      const selected=(form.disabilityDetail||"").includes(label);
-                      return(
-                        <button key={n} type="button" onClick={()=>{
-                          const cur=(form.disabilityDetail||"").split("＋").filter(Boolean);
-                          const next=selected?cur.filter(x=>x!==label):[...cur,label].sort();
-                          fld("disabilityDetail",next.join("＋"));
-                        }} style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${selected?C.primary:C.border}`,background:selected?C.primary:C.cardAlt,color:selected?"#fff":C.text,cursor:"pointer",fontSize:12,fontFamily:font}}>
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {form.disabilityDetail&&<div style={{fontSize:12,color:C.primary,marginTop:6}}>{form.disabilityDetail}</div>}
-                </div>
-              )}
-            </div>
+    <DisabilityFields form={form} fld={fld}/>
     <FormRow label="障礙等級" field="disabilityLevel" value={form["disabilityLevel"]} onChange={fld} opts={["","輕度","中度","重度","極重度"]}/>
+    <FormRow label="現在等級" field="changeLevel" value={form["changeLevel"]} onChange={fld} opts={["","一","二","三","四","A","B","C"]}/>
   </div>
   <div style={{fontSize:12,color:C.muted,marginBottom:12,fontWeight:500}}>地址與居住</div>
   <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:16}}>
@@ -1651,8 +1720,10 @@ function CaseList({data,setData,onSave,onDelete}){
     <FormRow label="緊急聯絡人關係" field="emergencyRelation" value={form["emergencyRelation"]} onChange={fld}/>
     <FormRow label="緊急聯絡電話" field="emergencyPhone" value={form["emergencyPhone"]} onChange={fld}/>
   </div>
-  <div style={{fontSize:12,color:C.muted,marginBottom:12,fontWeight:500}}>進案資訊</div>
-  <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:16}}>
+  <div onClick={()=>setShowIntake(v=>!v)} style={{fontSize:12,color:C.muted,marginBottom:12,fontWeight:500,cursor:"pointer",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
+    <span style={{fontSize:10}}>{showIntake?"▼":"▶"}</span>進案資訊<span style={{fontWeight:400,fontSize:11}}>（{showIntake?"點擊收起":"點擊展開"}）</span>
+  </div>
+  <div className="grid-2col" style={{display:showIntake?"grid":"none",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:16}}>
     <FormRow label="來源" field="source" value={form["source"]} onChange={fld}/>
     <FormRow label="轉介單位" field="referralUnit" value={form["referralUnit"]} onChange={fld}/>
     <FormRow label="進案時間" field="caseInDate" value={form["caseInDate"]} onChange={fld} type="date"/>
@@ -1661,7 +1732,6 @@ function CaseList({data,setData,onSave,onDelete}){
     <FormRow label="開案時間" field="openDate" value={form["openDate"]} onChange={fld} type="date"/>
     <FormRow label="系統分案等級" field="systemLevel" value={form["systemLevel"]} onChange={fld}/>
     <FormRow label="個案起始等級" field="initialLevel" value={form["initialLevel"]} onChange={fld}/>
-    <FormRow label="基本頻率" field="visitFreq" value={form["visitFreq"]} onChange={fld}/>
     <FormRow label="主責社工" field="mainWorker" value={form["mainWorker"]} onChange={fld}/>
     <div style={{gridColumn:"span 2"}}><Label>簡要服務紀錄</Label><textarea value={form.note} onChange={e=>fld("note",e.target.value)} style={{...inp(),height:72,resize:"vertical"}}/></div>
   </div>
@@ -1677,12 +1747,21 @@ function CaseList({data,setData,onSave,onDelete}){
         <span style={{fontSize:12,color:C.muted}}>{filtered.length} 個案</span>
       </div>
 
+      {showCompleteness&&(
+        <div style={{marginBottom:24}}>
+          <DataCompleteness cases={data.cases||[]} onOpenCase={c=>{setEditCase(c);}}/>
+        </div>
+      )}
+
       {/* 分類方式切換 */}
       <div style={{display:"flex",gap:0,marginBottom:20,background:C.cardAlt,borderRadius:10,border:`1px solid ${C.border}`,padding:4,width:"fit-content",flexWrap:"wrap"}}>
         {[
           {key:"none",       label:"不分類"},
           {key:"changeLevel",label:"現在等級"},
           {key:"disabilityLevel",label:"障礙等級"},
+          {key:"livingAlone",label:"獨居"},
+          {key:"elderlyCouple",label:"雙老"},
+          {key:"ageGroup",label:"65歲以上"},
         ].map(({key,label})=>(
           <button key={key} onClick={()=>setGroupBy(key)}
             style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:groupBy===key?600:400,
@@ -1740,7 +1819,7 @@ function CaseList({data,setData,onSave,onDelete}){
                   {c.caseNo&&<span>📋 {c.caseNo}</span>}
                   {c.addr&&<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📍 {c.addr}</span>}
                   {(c.birthDate||c.age)&&<span>🎂 {c.birthDate?`${c.birthDate.slice(0,10)} `:""}{c.age?`${c.age}歲`:""}</span>}
-                  {c.disabilityType&&<span>♿ {c.disabilityType}{c.disabilityDetail&&c.disabilityType==="多重障"?`（${c.disabilityDetail}）`:""}</span>}
+                  {c.disabilityType&&<span>♿ {c.disabilityType}{c.disabilityType==="多重障"?(c.disabilityDetail?`（${c.disabilityDetail}）`:""):(c.disabilitySub?`－${c.disabilitySub}`:"")}</span>}
                   {c.changeLevel&&<span>📊 現在等級：{c.changeLevel}</span>}
                 </div>
               </div>
@@ -1797,10 +1876,19 @@ function CaseList({data,setData,onSave,onDelete}){
           initialLevel:"個案起始等級",
           changeLevel:"現在等級",
           disabilityLevel:"障礙等級",
+          livingAlone:"獨居",
+          elderlyCouple:"雙老",
+          ageGroup:"年齡",
         };
         const groups={};
         filtered.forEach(c=>{
-          const g=c[groupBy]||"（未填）";
+          let g;
+          if(groupBy==="ageGroup"){
+            const y=calcAgeYears(c.birthDate);
+            g = y===null ? "（未填生日）" : (y>=65 ? "65歲以上" : "65歲以下");
+          }else{
+            g=c[groupBy]||"（未填）";
+          }
           if(!groups[g])groups[g]=[];
           groups[g].push(c);
         });
@@ -1808,9 +1896,15 @@ function CaseList({data,setData,onSave,onDelete}){
           initialLevel:["一","二","三","四","A","B","C","（未填）"],
           changeLevel:["一","二","三","四","A","B","C","（未填）"],
           disabilityLevel:["極重度","重度","中度","輕度","（未填）"],
+          livingAlone:["是","否","（未填）"],
+          elderlyCouple:["是","否","（未填）"],
+          ageGroup:["65歲以上","65歲以下","（未填生日）"],
         };
         const order=ORDER[groupBy]||[];
+        const isUnfilled=k=>k.indexOf("未填")>=0;
         const sortedKeys=[...Object.keys(groups)].sort((a,b)=>{
+          // 「未填」一律排最後
+          if(isUnfilled(a)!==isUnfilled(b))return isUnfilled(a)?1:-1;
           const ai=order.indexOf(a), bi=order.indexOf(b);
           if(ai>=0&&bi>=0)return ai-bi;
           if(ai>=0)return -1;
@@ -1818,21 +1912,53 @@ function CaseList({data,setData,onSave,onDelete}){
           return a.localeCompare(b,"zh-TW");
         });
 
+        const groupTotal=filtered.length;
+        const maxCount=Math.max(...sortedKeys.map(k=>groups[k].length),1);
+
         return(
           <div>
-            {sortedKeys.map(g=>(
-              <div key={g} style={{marginBottom:28}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                  <div style={{fontSize:13,fontWeight:700,color:C.primary,background:"#E8F5EE",padding:"4px 14px",borderRadius:20}}>
-                    {labelMap[groupBy]}：{g}
+            <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:10,paddingLeft:2}}>
+              <span style={{fontSize:11,color:C.muted,letterSpacing:"0.08em"}}>依{labelMap[groupBy]}分類</span>
+              <span style={{fontSize:11,color:C.border}}>·</span>
+              <span style={{fontSize:11,color:C.muted}}>{groupTotal} 個案 · {sortedKeys.length} 組</span>
+            </div>
+            <div style={{border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",background:C.card,marginBottom:24}}>
+            {sortedKeys.map((g,gi)=>{
+              const gKey=groupBy+"||"+g;
+              const isOpen=!!openGroups[gKey];
+              const n=groups[g].length;
+              const share=groupTotal?Math.round(n/groupTotal*100):0;
+              const barW=Math.round(n/maxCount*100);
+              const isBlankGroup=g.indexOf("未填")>=0;
+              const hue=isBlankGroup?C.muted:C.primary;
+              return(
+              <div key={g} style={{borderTop:gi===0?"none":`1px solid ${C.border}`}}>
+                <div onClick={()=>setOpenGroups(o=>({...o,[gKey]:!o[gKey]}))}
+                  style={{position:"relative",display:"flex",alignItems:"center",gap:12,cursor:"pointer",userSelect:"none",
+                    padding:"13px 18px",background:isOpen?"#F2F8F5":"transparent",transition:"background .15s"}}
+                  onMouseEnter={e=>{if(!isOpen)e.currentTarget.style.background=C.cardAlt;}}
+                  onMouseLeave={e=>{if(!isOpen)e.currentTarget.style.background="transparent";}}>
+                  <div style={{position:"absolute",left:0,top:0,bottom:0,width:barW+"%",
+                    background:isBlankGroup?"rgba(122,114,104,0.13)":"rgba(42,102,83,0.16)",pointerEvents:"none"}}/>
+                  <span style={{position:"relative",fontSize:10,color:hue,width:10,flexShrink:0,
+                    display:"inline-block",transform:isOpen?"rotate(90deg)":"none",transition:"transform .18s"}}>▶</span>
+                  <span style={{position:"relative",fontFamily:serif,fontSize:16,fontWeight:600,color:hue,
+                    flex:1,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g}</span>
+                  <span style={{position:"relative",fontSize:11,color:C.muted,flexShrink:0,minWidth:34,textAlign:"right"}}>{share}%</span>
+                  <span style={{position:"relative",display:"flex",alignItems:"baseline",gap:3,flexShrink:0,minWidth:56,justifyContent:"flex-end"}}>
+                    <span style={{fontFamily:serif,fontSize:19,fontWeight:700,color:hue,lineHeight:1}}>{n}</span>
+                    <span style={{fontSize:11,color:C.muted}}>個案</span>
+                  </span>
+                </div>
+                {isOpen&&(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14,padding:"14px 18px 20px",background:C.cardAlt}}>
+                    {groups[g].map(c=><CaseCard key={c.id} c={c}/>)}
                   </div>
-                  <span style={{fontSize:12,color:C.muted}}>{groups[g].length} 個案</span>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}}>
-                  {groups[g].map(c=><CaseCard key={c.id} c={c}/>)}
-                </div>
+                )}
               </div>
-            ))}
+              );
+            })}
+            </div>
           </div>
         );
       })()}
@@ -1840,6 +1966,90 @@ function CaseList({data,setData,onSave,onDelete}){
   );
 }
 
+
+// ── 資料完整度 ──────────────────────────────────────────────────
+const REQUIRED_FIELDS=[
+  {section:"基本資料",   key:"name",           label:"姓名"},
+  {section:"基本資料",   key:"caseNo",         label:"案號"},
+  {section:"基本資料",   key:"idNo",           label:"身分證字號"},
+  {section:"基本資料",   key:"status",         label:"案況"},
+  {section:"基本資料",   key:"gender",         label:"生理性別"},
+  {section:"基本資料",   key:"birthDate",      label:"出生日期"},
+  {section:"基本資料",   key:"disabilityType", label:"新制障別"},
+  {section:"基本資料",   key:"disabilityLevel",label:"障礙等級"},
+  {section:"基本資料",   key:"changeLevel",    label:"現在等級"},
+  {section:"地址與居住", key:"registeredAddr", label:"戶籍地址"},
+  {section:"地址與居住", key:"addr",           label:"居住地址"},
+  {section:"地址與居住", key:"livingAlone",    label:"獨居"},
+  {section:"地址與居住", key:"elderlyCouple",  label:"雙老"},
+];
+const isBlank=v=>v===undefined||v===null||String(v).trim()==="";
+
+function DataCompleteness({cases,onOpenCase}){
+  const [expanded,setExpanded]=useState(null);
+  const N=cases.length;
+  if(N===0)return <Card><div style={{color:C.muted,fontSize:14}}>尚無個案資料</div></Card>;
+
+  const stats=REQUIRED_FIELDS.map(f=>{
+    const missing=cases.filter(c=>isBlank(c[f.key]));
+    return {...f, filled:N-missing.length, missing, pct:Math.round((N-missing.length)/N*100)};
+  });
+  const totalCells=N*REQUIRED_FIELDS.length;
+  const filledCells=stats.reduce((s,x)=>s+x.filled,0);
+  const overall=Math.round(filledCells/totalCells*100);
+  const sections=[...new Set(REQUIRED_FIELDS.map(f=>f.section))];
+  const barColor=p=>p>=90?"#2A9D5C":p>=60?"#C4824A":"#C0392B";
+
+  return(
+    <div>
+      <Card style={{marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:12,flexWrap:"wrap"}}>
+          <div style={{fontSize:28,fontWeight:700,color:barColor(overall)}}>{overall}%</div>
+          <div style={{fontSize:13,color:C.muted}}>整體完整度 · 共 {N} 筆個案 · {REQUIRED_FIELDS.length} 個必填欄位</div>
+        </div>
+        <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.6}}>
+          僅統計「基本資料」與「地址與居住」欄位；聯繫資訊與進案資訊不列入。
+        </div>
+      </Card>
+
+      {sections.map(sec=>(
+        <Card key={sec} style={{marginBottom:16}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:14}}>{sec}</div>
+          {stats.filter(x=>x.section===sec).map(x=>{
+            const isOpen=expanded===x.key;
+            return(
+              <div key={x.key} style={{marginBottom:12}}>
+                <div onClick={()=>x.missing.length&&setExpanded(isOpen?null:x.key)}
+                  style={{display:"flex",alignItems:"center",gap:10,cursor:x.missing.length?"pointer":"default"}}>
+                  <div style={{width:96,fontSize:12,color:C.text,flexShrink:0}}>{x.label}</div>
+                  <div style={{flex:1,height:8,background:C.cardAlt,borderRadius:20,overflow:"hidden",minWidth:60}}>
+                    <div style={{width:x.pct+"%",height:"100%",background:barColor(x.pct),transition:"width .3s"}}/>
+                  </div>
+                  <div style={{width:40,textAlign:"right",fontSize:12,fontWeight:600,color:barColor(x.pct),flexShrink:0}}>{x.pct}%</div>
+                  <div style={{width:96,textAlign:"right",fontSize:11,color:C.muted,flexShrink:0}}>
+                    {x.missing.length>0
+                      ?<span style={{color:"#C0392B"}}>{x.missing.length} 筆未填 {isOpen?"▲":"▼"}</span>
+                      :<span style={{color:"#2A9D5C"}}>✓ 完整</span>}
+                  </div>
+                </div>
+                {isOpen&&(
+                  <div style={{marginTop:8,marginLeft:106,padding:"8px 12px",background:C.cardAlt,borderRadius:8,display:"flex",flexWrap:"wrap",gap:6}}>
+                    {x.missing.map(c=>(
+                      <span key={c.id} onClick={()=>onOpenCase(c)}
+                        style={{fontSize:12,padding:"3px 10px",borderRadius:20,background:C.card,border:`1px solid ${C.border}`,cursor:"pointer",color:C.primary}}>
+                        {c.name||"(未命名)"}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 // ── RESOURCES ───────────────────────────────────────────────────
 const RES_CATS=["長照","行政","保護","精神","醫療","就業","住宅","其他"];
