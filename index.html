@@ -1749,7 +1749,7 @@ function CaseList({data,setData,onSave,onDelete}){
 
       {showCompleteness&&(
         <div style={{marginBottom:24}}>
-          <DataCompleteness cases={data.cases||[]} onOpenCase={c=>{setEditCase(c);}}/>
+          <DataCompleteness cases={(data.cases||[]).filter(c=>c.status==="開案中")} onOpenCase={c=>{setEditCase(c);}}/>
         </div>
       )}
 
@@ -2005,10 +2005,10 @@ function DataCompleteness({cases,onOpenCase}){
       <Card style={{marginBottom:16}}>
         <div style={{display:"flex",alignItems:"baseline",gap:12,flexWrap:"wrap"}}>
           <div style={{fontSize:28,fontWeight:700,color:barColor(overall)}}>{overall}%</div>
-          <div style={{fontSize:13,color:C.muted}}>整體完整度 · 共 {N} 筆個案 · {REQUIRED_FIELDS.length} 個必填欄位</div>
+          <div style={{fontSize:13,color:C.muted}}>整體完整度 · 開案中 {N} 筆 · {REQUIRED_FIELDS.length} 個必填欄位</div>
         </div>
         <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.6}}>
-          僅統計「基本資料」與「地址與居住」欄位；聯繫資訊與進案資訊不列入。
+          僅統計案況為「開案中」的個案，以及「基本資料」與「地址與居住」欄位；待評估、結案、列管中不列入。
         </div>
       </Card>
 
