@@ -2056,19 +2056,30 @@ const RES_CATS=["長照","行政","保護","精神","醫療","就業","住宅","
 function ResourceList({data,setData,onSave,onDelete}){
   const blank={name:"",cat:"其他",phone:"",addr:"",note:""};
   const [showForm,setShowForm]=useState(false);
+  const [editId,setEditId]=useState(null);
   const [form,setForm]=useState(blank);
   const [search,setSearch]=useState("");
   const [catFil,setCatFil]=useState("全部");
   const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const save=async()=>{if(!form.name.trim()){alert("請填寫名稱");return;}const r={...form,id:uid()};setData(d=>({...d,resources:[...d.resources,r]}));await onSave("resources",r);setForm(blank);setShowForm(false);};
+  const save=async()=>{
+    if(!form.name.trim()){alert("請填寫名稱");return;}
+    const r={...form,name:form.name.trim(),id:editId||uid()};
+    setData(d=>({...d,resources:editId
+      ?d.resources.map(x=>x.id===editId?r:x)
+      :[...d.resources,r]}));
+    await onSave("resources",r);
+    setForm(blank);setShowForm(false);setEditId(null);
+  };
+  const startEdit=r=>{setForm({name:r.name||"",cat:r.cat||"其他",phone:r.phone||"",addr:r.addr||"",note:r.note||""});setEditId(r.id);setShowForm(true);window.scrollTo({top:0,behavior:"smooth"});};
+  const cancelForm=()=>{setForm(blank);setShowForm(false);setEditId(null);};
   const del=async id=>{if(!confirm("確定刪除？"))return;setData(d=>({...d,resources:d.resources.filter(r=>r.id!==id)}));await onDelete("resources",id);};
   const filtered=data.resources.filter(r=>(catFil==="全部"||r.cat===catFil)&&(r.name?.includes(search)||r.phone?.includes(search)||r.note?.includes(search)));
   return(
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:10}}><H1>服務資源清單</H1><Btn variant={showForm?"secondary":"primary"} onClick={()=>setShowForm(v=>!v)}>{showForm?"取消":"+ 新增資源"}</Btn></div>
-      {showForm&&(<Card style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:600,marginBottom:16}}>新增服務資源</div><div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px"}}>{[["name","名稱 *"],["phone","電話"],["addr","地址"]].map(([f,l])=>(<div key={f}><Label>{l}</Label><input value={form[f]} onChange={e=>fld(f,e.target.value)} style={inp()}/></div>))}<div><Label>類別</Label><select value={form.cat} onChange={e=>fld("cat",e.target.value)} style={inp()}>{RES_CATS.map(c=><option key={c}>{c}</option>)}</select></div><div style={{gridColumn:"span 2"}}><Label>備註</Label><input value={form.note} onChange={e=>fld("note",e.target.value)} style={inp()}/></div></div><div style={{display:"flex",gap:10,marginTop:16}}><Btn onClick={save}>儲存</Btn><Btn variant="secondary" onClick={()=>setShowForm(false)}>取消</Btn></div></Card>)}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24,flexWrap:"wrap",gap:10}}><H1>服務資源清單</H1><Btn variant={showForm?"secondary":"primary"} onClick={()=>showForm?cancelForm():setShowForm(true)}>{showForm?"取消":"+ 新增資源"}</Btn></div>
+      {showForm&&(<Card style={{marginBottom:20}}><div style={{fontSize:14,fontWeight:600,marginBottom:16}}>{editId?"編輯服務資源":"新增服務資源"}</div><div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px"}}>{[["name","名稱 *"],["phone","電話"],["addr","地址"]].map(([f,l])=>(<div key={f}><Label>{l}</Label><input value={form[f]} onChange={e=>fld(f,e.target.value)} style={inp()}/></div>))}<div><Label>類別</Label><select value={form.cat} onChange={e=>fld("cat",e.target.value)} style={inp()}>{RES_CATS.map(c=><option key={c}>{c}</option>)}</select></div><div style={{gridColumn:"span 2"}}><Label>備註</Label><input value={form.note} onChange={e=>fld("note",e.target.value)} style={inp()}/></div></div><div style={{display:"flex",gap:10,marginTop:16}}><Btn onClick={save}>{editId?"更新":"儲存"}</Btn><Btn variant="secondary" onClick={cancelForm}>取消</Btn></div></Card>)}
       <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}><input placeholder="搜尋..." value={search} onChange={e=>setSearch(e.target.value)} style={{...inp(),maxWidth:200}}/>{["全部",...RES_CATS].map(c=>(<button key={c} onClick={()=>setCatFil(c)} style={{padding:"5px 14px",borderRadius:20,fontSize:12,cursor:"pointer",border:"none",fontFamily:font,background:catFil===c?C.primary:C.border,color:catFil===c?"#fff":C.text}}>{c}</button>))}</div>
-      <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{filtered.map(r=>(<div key={r.id} style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:"16px 20px"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}><span style={{fontWeight:600,fontSize:14}}>{r.name}</span><Tag cat={r.cat}/></div>{r.phone&&<div style={{fontSize:13,color:C.primary,marginBottom:3}}>📞 {r.phone}</div>}{r.addr&&<div style={{fontSize:12,color:C.muted,marginBottom:3}}>📍 {r.addr}</div>}{r.note&&<div style={{fontSize:12,color:C.muted}}>{r.note}</div>}</div><Btn variant="danger" onClick={()=>del(r.id)} style={{padding:"4px 10px",fontSize:11,marginLeft:8,flexShrink:0}}>刪除</Btn></div></div>))}</div>
+      <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>{filtered.map(r=>(<div key={r.id} style={{background:editId===r.id?"#F2F8F5":C.card,borderRadius:12,border:`1px solid ${editId===r.id?C.primary:C.border}`,padding:"16px 20px"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}><div style={{flex:1}}><div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}><span style={{fontWeight:600,fontSize:14}}>{r.name}</span><Tag cat={r.cat}/></div>{r.phone&&<div style={{fontSize:13,color:C.primary,marginBottom:3}}>📞 {r.phone}</div>}{r.addr&&<div style={{fontSize:12,color:C.muted,marginBottom:3}}>📍 {r.addr}</div>}{r.note&&<div style={{fontSize:12,color:C.muted}}>{r.note}</div>}</div><div style={{display:"flex",gap:6,marginLeft:8,flexShrink:0}}><Btn variant="secondary" onClick={()=>startEdit(r)} style={{padding:"4px 10px",fontSize:11}}>編輯</Btn><Btn variant="danger" onClick={()=>del(r.id)} style={{padding:"4px 10px",fontSize:11}}>刪除</Btn></div></div></div>))}</div>
     </div>
   );
 }
