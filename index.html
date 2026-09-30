@@ -3426,17 +3426,18 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     });
   }
 
-  // 資源聯繫統計（聯繫對象=機構 或 專業團隊）
+  // 資源聯繫統計（聯繫對象=機構、專業團隊、其他）
   const resourceItems=[];
   const rawResourceRows=[];
   if(showResources){
     const monthRecords=(data.caseRecords||[]).filter(r=>r.date?.startsWith(monthStr));
     monthRecords.forEach(r=>{
       const persons=r.contactPersons||[];
-      // 抓出該紀錄中所有「機構」「專業團隊」類型的對象
-      const resourcePersons=persons.filter(p=>p.type==="機構"||p.type==="專業團隊");
+      // 抓出該紀錄中所有「機構」「專業團隊」「其他」類型的對象
+      const RES_TYPES=["機構","專業團隊","其他"];
+      const resourcePersons=persons.filter(p=>RES_TYPES.includes(p.type));
       // 相容舊資料 contactPersonType
-      if(resourcePersons.length===0&&(r.contactPersonType==="機構"||r.contactPersonType==="專業團隊")){
+      if(resourcePersons.length===0&&RES_TYPES.includes(r.contactPersonType)){
         resourcePersons.push({type:r.contactPersonType,name:r.contactPerson||""});
       }
       if(resourcePersons.length===0)return;
@@ -3508,8 +3509,26 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     if(ne)return{state:"new",entry:ne};
     return{state:rbBook?"missing":"unverified",entry:m};
   };
-  const rbRows=resourceItems.map(it=>{const mp=rbGetMap(it);return{it,mp,rs:rbResolve(mp?.m)};});
-  const rbDone=rbRows.filter(r=>r.rs.state==="ok"||r.rs.state==="new"||r.rs.state==="unverified").length;
+  // 不列入：依個案＋聯繫對象記住，下個月同一位不用再挑；不列入的排到最後，其餘順序不變
+  const rbSkips=(data.resourceMap||[]).filter(m=>m.kind==="skip");
+  const rbIsSkip=it=>rbSkips.some(m=>m.caseId===it.caseId&&m.unit===it.unit);
+  resourceItems.sort((a,b)=>rbIsSkip(a)-rbIsSkip(b));
+  const rbRows=resourceItems.map(it=>{const mp=rbGetMap(it);return{it,mp,rs:rbResolve(mp?.m),skip:rbIsSkip(it)};});
+  const rbUsed=rbRows.filter(r=>!r.skip);
+  const rbSkipCount=rbRows.length-rbUsed.length;
+  const rbDone=rbUsed.filter(r=>r.rs.state==="ok"||r.rs.state==="new"||r.rs.state==="unverified").length;
+  const rbToggleSkip=async it=>{
+    const ex=rbSkips.find(m=>m.caseId===it.caseId&&m.unit===it.unit);
+    setExpandedResource(null);
+    if(ex){
+      setData(d=>({...d,resourceMap:(d.resourceMap||[]).filter(x=>x.id!==ex.id)}));
+      if(onDelete)await onDelete("resourceMap",ex.id);
+    }else{
+      const rec={id:uid(),kind:"skip",caseId:it.caseId,unit:it.unit,updatedAt:new Date().toISOString()};
+      setData(d=>({...d,resourceMap:[...(d.resourceMap||[]),rec]}));
+      await onSave("resourceMap",rec);
+    }
+  };
   const rbPendingNew=rbBook
     ?rbNewEntries.filter(n=>!rbIndex.has(rbKey(n.name,n.big,n.sub)))
     :rbNewEntries.filter(n=>rbRows.some(r=>r.rs.state==="new"&&r.rs.entry.id===n.id));
@@ -3542,7 +3561,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     const uniq=a=>[...new Set(a.map(x=>String(x||"").trim()).filter(Boolean))];
     // 同一個案對到同一筆總冊資源的列合併成一列
     const groups=new Map();
-    rbRows.forEach(({it,mp,rs})=>{
+    rbUsed.forEach(({it,mp,rs})=>{
       const ent=rs.entry;
       const k=it.caseId+"##"+(ent?rbKey(ent.name,ent.big,ent.sub):"none:"+it.unit);
       const dr=rbDraft[rbRowKey(it)]||{};
@@ -3581,6 +3600,12 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
       const det=[...g.details].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(d=>`${fmtDate(d.date)}${d.count>1?" ×"+d.count:""} ${d.content||""}`.trim());
       chk.push([flags.join("、"),g.c?.name||g.it.name,rbCaseType(g.c),uniq(g.units).join("、"),g.ent?.name||"",g.ent?.big||"",g.ent?.sub||"",g.count,det.join("\n")]);
     });
+    // 不列入的放在核對用最後，方便核對
+    rbRows.filter(r=>r.skip).forEach(({it})=>{
+      const c=(data.cases||[]).find(x=>x.id===it.caseId);
+      const det=[...(it.details||[])].sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(d=>`${fmtDate(d.date)}${d.count>1?" ×"+d.count:""} ${d.content||""}`.trim());
+      chk.push(["不列入，不在資源聯繫紀錄表",c?.name||it.name,rbCaseType(c),it.unit,"","","",it.contactCount||0,det.join("\n")]);
+    });
     const ws2=XL.utils.aoa_to_sheet(chk);
     ws2["!cols"]=[28,10,8,26,36,18,22,6,60].map(w=>({wch:w}));
     const wb=XL.utils.book_new();
@@ -3610,9 +3635,16 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     const small={fontSize:11,color:C.muted,marginTop:2};
     const linkBtn=(txt,onClick,color="#3A5FAA")=><button onClick={onClick} style={{border:"none",background:"transparent",padding:0,marginRight:10,fontSize:11,fontWeight:600,color,cursor:"pointer",fontFamily:font}}>{txt}</button>;
     const openPick=()=>setRbPicker({mode:"pick",it});
+    if(row.skip)return(
+      <div>
+        <span style={{fontSize:11,fontWeight:600,padding:"1px 8px",borderRadius:20,background:"#F0F0EE",color:C.muted}}>不列入</span>
+        <div style={{marginTop:4}}>{linkBtn("恢復列入",()=>rbToggleSkip(it))}</div>
+      </div>
+    );
+    const skipLink=linkBtn("不列入",()=>rbToggleSkip(it),C.muted);
     if(rs.state==="none")return rbBook
-      ?<button onClick={openPick} style={{padding:"4px 12px",borderRadius:6,border:"1px solid #4A78B0",background:"#fff",color:"#3A5FAA",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:font}}>選擇</button>
-      :<span style={{fontSize:12,color:C.muted}}>未對應・先載入總冊</span>;
+      ?<div><button onClick={openPick} style={{padding:"4px 12px",borderRadius:6,border:"1px solid #4A78B0",background:"#fff",color:"#3A5FAA",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:font,marginRight:10}}>選擇</button>{skipLink}</div>
+      :<div><span style={{fontSize:12,color:C.muted,marginRight:10}}>未對應・先載入總冊</span>{skipLink}</div>;
     const e=rs.entry;
     const tag={new:["新增待貼總冊","#FFF4E0",C.accent],unverified:["未核對總冊","#F0F0EE",C.muted],missing:["總冊找不到，請重選","#FFE0E0","#A03030"]}[rs.state];
     return(
@@ -3623,7 +3655,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
         <div style={{marginTop:4}}>
           {mp?.inherited&&<span style={{fontSize:11,color:C.accent,marginRight:8}}>沿用其他個案</span>}
           {mp?.inherited&&rs.state!=="missing"&&linkBtn("✓ 確認",()=>rbSavePick(it,e),C.primary)}
-          {rbBook&&linkBtn("更換",openPick)}
+          {rbBook&&linkBtn("更換",openPick)}{skipLink}
         </div>
       </div>
     );
@@ -3813,7 +3845,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
         <div style={{background:"#EFF4FB",border:"2px solid #4A78B0",borderRadius:12,padding:20,marginBottom:20}}>
           <div style={{fontSize:15,fontWeight:700,color:"#3A5FAA",marginBottom:12,display:"flex",alignItems:"center",gap:8}}>
             🔗 資源聯繫統計
-            <span style={{fontSize:12,fontWeight:500,color:C.muted,marginLeft:"auto"}}>合併後 {resourceItems.length} 列 / 共 {resourceItems.reduce((s,it)=>s+(it.contactCount||0),0)} 次</span>
+            <span style={{fontSize:12,fontWeight:500,color:C.muted,marginLeft:"auto"}}>合併後 {rbUsed.length} 列 / 共 {rbUsed.reduce((s,r)=>s+(r.it.contactCount||0),0)} 次</span>
           </div>
           {/* 總冊載入、查詢、下載 */}
           <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"stretch",marginBottom:12}}>
@@ -3837,7 +3869,8 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
           </div>
           {resourceItems.length>0&&(
             <div style={{fontSize:12,color:C.muted,marginBottom:10}}>
-              已對應總冊 <b style={{color:rbDone===resourceItems.length?C.primary:C.accent}}>{rbDone}</b> / {resourceItems.length} 列
+              已對應總冊 <b style={{color:rbDone===rbUsed.length?C.primary:C.accent}}>{rbDone}</b> / {rbUsed.length} 列
+              {rbSkipCount>0&&<span style={{marginLeft:10}}>不列入 {rbSkipCount} 列</span>}
               {rbPendingNew.length>0&&<span style={{color:C.accent,marginLeft:10}}>新增待貼總冊 {rbPendingNew.length} 筆</span>}
               <span style={{marginLeft:10}}>點一列可以填評價和修改聯繫內容說明</span>
             </div>
@@ -3847,7 +3880,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             <BookPicker
               book={rbBook}
               newEntries={rbNewEntries}
-              initQuery={rbPicker.mode==="pick"?rbPicker.it.unit.replace(/^(機構|專業團隊)\s*/,""):""}
+              initQuery={rbPicker.mode==="pick"?rbPicker.it.unit.replace(/^(機構|專業團隊|其他)\s*/,""):""}
               title={rbPicker.mode==="pick"?`選擇總冊資源：${rbPicker.it.name}・${rbPicker.it.unit}`:"查詢資源總冊"}
               onClose={()=>setRbPicker(null)}
               onPick={rbPicker.mode==="pick"?async e=>{const it=rbPicker.it;setRbPicker(null);await rbSavePick(it,e);}:null}
@@ -3889,7 +3922,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                     return(
                       <React.Fragment key={i}>
                       <tr key={i} onClick={()=>hasDetails&&setExpandedResource(isExpanded?null:i)}
-                        style={{borderBottom:`1px solid ${C.border}`,borderTop:newUnit&&i>0?`2px solid #B8CCE4`:"none",cursor:hasDetails?"pointer":"default",background:isExpanded?"#F5F9FF":"transparent",verticalAlign:"top"}}>
+                        style={{borderBottom:`1px solid ${C.border}`,borderTop:newUnit&&i>0?`2px solid #B8CCE4`:"none",cursor:hasDetails?"pointer":"default",background:isExpanded?"#F5F9FF":"transparent",verticalAlign:"top",opacity:rbRows[i]?.skip?0.45:1}}>
                         <td style={{padding:"8px 12px",color:"#3A5FAA",fontWeight:600,wordBreak:"break-word"}}>
                           {newUnit?it.unit:<span style={{color:C.border}}>〃</span>}
                         </td>
@@ -3929,7 +3962,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             </div>
           }
           <div style={{fontSize:11,color:C.muted,marginTop:10,lineHeight:1.6}}>
-            💡 統計本月所有聯繫對象類型為「機構」或「專業團隊」的紀錄。同一個案多次聯繫同一單位每次都會列出，依姓名排序。
+            💡 統計本月聯繫對象類型為「機構」「專業團隊」「其他」的紀錄。同一個案聯繫同一單位會合併成一列、次數加總，依資源單位排序。
           </div>
         </div>
       )}
