@@ -571,11 +571,7 @@ function ExcelImporter({onImport,onClose}){
       const XLSX=await loadXLSX();
       const buf=await file.arrayBuffer();
       const wb=XLSX.read(buf,{type:"array"});
-      // 改讀第一個「未隱藏、且有標題列＋至少一筆資料」的工作表；都找不到時維持原本讀第一個工作表
-      const sheetMeta=(wb.Workbook&&wb.Workbook.Sheets)||[];
-      const sheetName=wb.SheetNames.find((n,i)=>!(sheetMeta[i]&&sheetMeta[i].Hidden)&&XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:""}).filter(r=>r.some(v=>v!=="")).length>=2)||wb.SheetNames[0];
-      if(wb.SheetNames.length>1)setFileName(file.name+"・工作表："+sheetName);
-      const ws=wb.Sheets[sheetName];
+      const ws=wb.Sheets[wb.SheetNames[0]];
       const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
       if(json.length<2){alert("Excel 內容不足");setLoading(false);return;}
       const hdrs=json[0].map(h=>String(h).trim());
@@ -3050,6 +3046,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
   const [showCheck,setShowCheck]=useState(false);
   const [showHomeVisit,setShowHomeVisit]=useState(false);
   const [showResources,setShowResources]=useState(false);
+  const [showRecon,setShowRecon]=useState(false);
   const [expandedResource,setExpandedResource]=useState(null);
   // ── 資源總冊對應：總冊只放在瀏覽器記憶體，不存資料庫；對應關係存 resourceMap ──
   const [rbBook,setRbBook]=useState(()=>window._rbBookCache||null);
@@ -3718,6 +3715,10 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showResources?"#3A5FAA":C.border}`,background:showResources?"#3A5FAA":"transparent",color:showResources?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             🔗 {showResources?"隱藏資源":"資源聯繫"}
           </button>
+          <button onClick={()=>setShowRecon(v=>!v)}
+            style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showRecon?"#5E8A5A":C.border}`,background:showRecon?"#5E8A5A":"transparent",color:showRecon?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+            🧾 {showRecon?"隱藏比對":"比對主管名單"}
+          </button>
         </div>
       </div>
 
@@ -3735,6 +3736,8 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
           </div>
         ))}
       </div>
+
+      {showRecon&&<CaseReconcile data={data} userName={userName}/>}
 
       {/* 家訪統計面板 */}
       {showHomeVisit&&(
@@ -4607,6 +4610,162 @@ function ConsultPage({data,setData,onSave,onDelete,userName}){
             );
           })}
         </div>}
+    </div>
+  );
+}
+
+// ── 比對主管的開案名單：只在瀏覽器讀檔，不存資料庫 ──────────────
+function reLv(s){const m=String(s||"").match(/[一二三四1-4]/);return m?({"一":1,"二":2,"三":3,"四":4}[m[0]]||Number(m[0])):null;}
+const RE_LV_TXT=["","第一級","第二級","第三級","第四級"];
+function reNo(s){let v=String(s??"").replace(/\s+/g,"").toUpperCase();if(/^\d+$/.test(v))v=v.replace(/^0+/,"")||"0";return v;}
+function reName(s){return String(s??"").replace(/\s+/g,"");}
+function reDate(v){
+  if(typeof v==="number"&&v>20000&&v<80000){const d=new Date(Math.round((v-25569)*86400*1000));return`${d.getUTCFullYear()-1911}/${d.getUTCMonth()+1}/${d.getUTCDate()}`;}
+  return String(v??"").trim();
+}
+const reActive=c=>c.status==="開案中"||c.status==="列管中";
+function reParse(wb){
+  const XL=window.XLSX;
+  for(const sn of wb.SheetNames){
+    const rows=XL.utils.sheet_to_json(wb.Sheets[sn],{header:1,defval:"",raw:true,blankrows:false});
+    for(let h=0;h<Math.min(rows.length,10);h++){
+      const head=rows[h].map(x=>String(x??"").replace(/\s+/g,""));
+      const find=(...names)=>head.findIndex(x=>names.some(n=>x.startsWith(n)));
+      const iLv=find("分級","個案等級","等級");
+      const iNo=find("個案編號","案號");
+      const iName=find("身心障礙者姓名","個案姓名","姓名");
+      if(iLv<0||(iNo<0&&iName<0))continue;
+      const iWorker=find("主責人員","主責社工");
+      const iOpen=find("開案時間","開案日期");
+      const list=[];
+      rows.slice(h+1).forEach(r=>{
+        const no=iNo>=0?String(r[iNo]??"").trim():"";
+        const name=iName>=0?String(r[iName]??"").trim():"";
+        const lvRaw=String(r[iLv]??"").trim();
+        if(!no&&!name&&!lvRaw)return;
+        list.push({no,name,lvRaw,lv:reLv(lvRaw),worker:iWorker>=0?String(r[iWorker]??"").trim():"",open:iOpen>=0?reDate(r[iOpen]):""});
+      });
+      return{sheet:sn,list};
+    }
+  }
+  throw new Error("找不到有「分級」和「個案編號」或「身心障礙者姓名」表頭的工作表");
+}
+// 先用案號配對，配不到再用姓名；姓名重複無法判斷的另外列出
+function reCompare(fileList,cases){
+  const res={pairs:[],onlyFile:[],onlyApp:[],inactive:[],lvDiff:[],noDiff:[],ambiguous:[]};
+  const used=new Set();
+  const index=(fn)=>{const m=new Map();cases.forEach(c=>{const k=fn(c);if(!k)return;if(!m.has(k))m.set(k,[]);m.get(k).push(c);});return m;};
+  const byNo=index(c=>reNo(c.caseNo)),byName=index(c=>reName(c.name));
+  const pending=[];
+  fileList.forEach(f=>{
+    const k=reNo(f.no);const hits=k?(byNo.get(k)||[]).filter(c=>!used.has(c.id)):[];
+    if(hits.length===1){used.add(hits[0].id);res.pairs.push({f,c:hits[0],by:"no"});}
+    else pending.push(f);
+  });
+  pending.forEach(f=>{
+    const k=reName(f.name);const hits=k?(byName.get(k)||[]).filter(c=>!used.has(c.id)):[];
+    if(hits.length===1){used.add(hits[0].id);res.pairs.push({f,c:hits[0],by:"name"});}
+    else if(hits.length>1)res.ambiguous.push({f,hits});
+    else res.onlyFile.push(f);
+  });
+  res.pairs.forEach(p=>{
+    if(!reActive(p.c))res.inactive.push(p);
+    if(p.f.lv&&reLv(p.c.changeLevel)!==p.f.lv)res.lvDiff.push(p);
+    if(p.by==="name"&&p.f.no&&reNo(p.f.no)!==reNo(p.c.caseNo))res.noDiff.push(p);
+  });
+  const amb=new Set(res.ambiguous.flatMap(a=>a.hits.map(c=>c.id)));
+  cases.filter(c=>reActive(c)&&!used.has(c.id)&&!amb.has(c.id)).forEach(c=>res.onlyApp.push(c));
+  return res;
+}
+
+function CaseReconcile({data,userName}){
+  const [file,setFile]=useState(()=>window._reconCache||null);
+  const [worker,setWorker]=useState(()=>window._reconCache?.worker??null);
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+  const ref=useRef(null);
+  const load=async f=>{
+    if(!f)return;
+    setErr("");setLoading(true);
+    try{
+      const wb=window.XLSX.read(await f.arrayBuffer(),{type:"array"});
+      const p=reParse(wb);
+      const workers=[...new Set(p.list.map(x=>x.worker).filter(Boolean))];
+      const mine=workers.find(w=>userName&&w.includes(userName))||"";
+      const b={...p,fileName:f.name,loadedAt:new Date(),workers,worker:mine};
+      window._reconCache=b;setFile(b);setWorker(mine);
+    }catch(e){console.error(e);setErr("讀取失敗："+e.message);}
+    finally{setLoading(false);}
+  };
+  const pickWorker=w=>{setWorker(w);if(window._reconCache)window._reconCache.worker=w;};
+  const list=file?(worker?file.list.filter(x=>x.worker===worker):file.list):[];
+  const res=file?reCompare(list,data.cases||[]):null;
+  const appActive=(data.cases||[]).filter(reActive);
+  const counts=[1,2,3,4].map(n=>({n,f:list.filter(x=>x.lv===n).length,a:appActive.filter(c=>reLv(c.changeLevel)===n).length}));
+  const appNoLv=appActive.filter(c=>!reLv(c.changeLevel)).length;
+  const fileNoLv=list.filter(x=>!x.lv).length;
+
+  const who=(no,name)=><><b style={{color:C.text}}>{name||"姓名空白"}</b><span style={{color:C.muted,marginLeft:8}}>{no?`案號 ${no}`:"沒有案號"}</span></>;
+  const Sec=({title,hint,items,render,color})=>(
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,marginTop:12,overflow:"hidden"}}>
+      <div style={{padding:"9px 14px",background:items.length?color:"#F0F5F0",fontSize:13,fontWeight:700,color:items.length?"#5A3A10":"#2A7A4A"}}>
+        {items.length?`${title}：${items.length} 筆`:`✓ ${title}：沒有`}
+        {items.length>0&&hint&&<div style={{fontSize:11,fontWeight:500,color:C.muted,marginTop:2}}>{hint}</div>}
+      </div>
+      {items.map((x,i)=><div key={i} style={{padding:"7px 14px",borderTop:`1px solid ${C.border}`,fontSize:13,lineHeight:1.6}}>{render(x)}</div>)}
+    </div>
+  );
+  return(
+    <div style={{background:"#F4F7F2",border:"2px solid #5E8A5A",borderRadius:12,padding:20,marginBottom:20}}>
+      <div style={{fontSize:15,fontWeight:700,color:"#3E6A3A",marginBottom:10}}>🧾 比對主管的開案名單</div>
+      <div onClick={()=>ref.current?.click()} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();load(e.dataTransfer.files?.[0]);}}
+        style={{border:"1.5px dashed #5E8A5A",borderRadius:8,padding:"8px 12px",background:"#fff",cursor:"pointer",fontSize:12,color:file?C.muted:"#3E6A3A",lineHeight:1.6,marginBottom:10}}>
+        {loading?"讀取中..."
+          :file?<>📄 已讀取 <b style={{color:C.text}}>{file.list.length}</b> 筆・{file.fileName}・{file.loadedAt.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit"})}　<span style={{color:"#3E6A3A"}}>點這裡或拖入新檔可重新讀取</span></>
+          :<>📂 把主管附的名單 Excel 拖到這裡，或點這裡選擇檔案<br/><span style={{color:C.muted}}>只在瀏覽器讀取，不會存進資料庫</span></>}
+      </div>
+      <input ref={ref} type="file" accept=".xlsx,.xlsm,.xls" style={{display:"none"}} onChange={e=>{load(e.target.files?.[0]);e.target.value="";}}/>
+      {err&&<div style={{fontSize:12,color:"#A03030",marginBottom:8}}>{err}</div>}
+      {file&&(
+        <>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,color:C.muted,marginBottom:10}}>
+            主責人員：
+            {file.workers.length>0
+              ?<select value={worker||""} onChange={e=>pickWorker(e.target.value)} style={inp({fontSize:12,width:"auto",padding:"4px 8px"})}>
+                 <option value="">全部 {file.list.length} 筆</option>
+                 {file.workers.map(w=><option key={w} value={w}>{w}・{file.list.filter(x=>x.worker===w).length} 筆</option>)}
+               </select>
+              :<span>檔案裡主責人員是空的，用全部 {file.list.length} 筆比對</span>}
+            {file.workers.length>0&&!worker&&<span style={{color:C.accent}}>目前用全部名單比對，別人的個案會出現在「系統沒有」</span>}
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {counts.map(({n,f,a})=>(
+              <div key={n} style={{background:C.card,border:`1px solid ${f===a?C.border:"#E0B060"}`,borderRadius:10,padding:"10px 14px",flex:1,minWidth:110}}>
+                <div style={{fontSize:12,color:C.muted}}>{RE_LV_TXT[n]}</div>
+                <div style={{fontSize:14,color:C.text,marginTop:2}}>主管 <b>{f}</b>　系統 <b style={{color:f===a?C.primary:C.accent}}>{a}</b></div>
+              </div>
+            ))}
+            <div style={{background:C.card,border:`1px solid ${list.length===appActive.length?C.border:"#E0B060"}`,borderRadius:10,padding:"10px 14px",flex:1,minWidth:110}}>
+              <div style={{fontSize:12,color:C.muted}}>合計</div>
+              <div style={{fontSize:14,color:C.text,marginTop:2}}>主管 <b>{list.length}</b>　系統 <b style={{color:list.length===appActive.length?C.primary:C.accent}}>{appActive.length}</b></div>
+            </div>
+          </div>
+          <div style={{fontSize:11,color:C.muted,marginTop:6}}>系統的數字是案況「開案中」加「列管中」，依現在等級分組。{appNoLv>0?`系統有 ${appNoLv} 個開案中個案沒填等級。`:""}{fileNoLv>0?`名單有 ${fileNoLv} 筆分級看不懂。`:""}</div>
+          <Sec title="主管名單有、系統沒有" color="#FFF4E0" items={res.onlyFile} hint="案號和姓名都配不到。可能是系統漏建，或案號、姓名寫法不同。"
+            render={f=><>{who(f.no,f.name)}<span style={{marginLeft:8}}>{f.lvRaw}</span>{f.open&&<span style={{color:C.muted,marginLeft:8}}>開案 {f.open}</span>}</>}/>
+          <Sec title="系統有、主管名單沒有" color="#FFF4E0" items={res.onlyApp} hint="系統是開案中或列管中，但名單裡找不到。可能已經結案還沒改，或名單漏列。"
+            render={c=><>{who(c.caseNo,c.name)}<span style={{marginLeft:8}}>{c.changeLevel?`${c.changeLevel}級`:"沒填等級"}</span><span style={{color:C.muted,marginLeft:8}}>{c.status}</span></>}/>
+          <Sec title="等級不同" color="#FFF4E0" items={res.lvDiff} hint="以主管名單為準的話，要到個案管理改現在等級，系統才會記下等級異動。"
+            render={p=><>{who(p.c.caseNo||p.f.no,p.c.name||p.f.name)}<span style={{marginLeft:8}}>主管 {p.f.lvRaw}</span><span style={{marginLeft:8,color:C.accent,fontWeight:600}}>系統 {p.c.changeLevel?`${p.c.changeLevel}級`:"沒填"}</span></>}/>
+          <Sec title="名單有，但系統案況不是開案中" color="#FFF4E0" items={res.inactive}
+            render={p=><>{who(p.c.caseNo,p.c.name)}<span style={{marginLeft:8}}>主管 {p.f.lvRaw}</span><span style={{marginLeft:8,color:C.accent,fontWeight:600}}>系統 {p.c.status}</span></>}/>
+          <Sec title="用姓名配對，但案號不同" color="#EAF0F8" items={res.noDiff} hint="同一個人，但系統的案號跟名單不一樣，建議把系統案號改成名單上的。"
+            render={p=><><b style={{color:C.text}}>{p.c.name}</b><span style={{marginLeft:8}}>名單案號 {p.f.no}</span><span style={{marginLeft:8,color:C.accent}}>系統案號 {p.c.caseNo||"空白"}</span></>}/>
+          <Sec title="同名，沒辦法判斷是哪一位" color="#EAF0F8" items={res.ambiguous} hint="系統裡有好幾個同名個案，又沒有案號可以對，請人工確認。"
+            render={a=><>{who(a.f.no,a.f.name)}<span style={{marginLeft:8}}>{a.f.lvRaw}</span><span style={{color:C.muted,marginLeft:8}}>系統同名 {a.hits.length} 位</span></>}/>
+          <div style={{fontSize:11,color:C.muted,marginTop:10}}>配對方式：先用案號，配不到再用姓名。兩邊一致的有 {res.pairs.filter(p=>!res.lvDiff.includes(p)&&!res.inactive.includes(p)).length} 筆。</div>
+        </>
+      )}
     </div>
   );
 }
