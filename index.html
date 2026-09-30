@@ -3737,7 +3737,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
         ))}
       </div>
 
-      {showRecon&&<CaseReconcile data={data} userName={userName}/>}
+      {showRecon&&<CaseReconcile data={data} setData={setData} onSave={onSave} userName={userName}/>}
 
       {/* 家訪統計面板 */}
       {showHomeVisit&&(
@@ -4623,7 +4623,8 @@ function reDate(v){
   if(typeof v==="number"&&v>20000&&v<80000){const d=new Date(Math.round((v-25569)*86400*1000));return`${d.getUTCFullYear()-1911}/${d.getUTCMonth()+1}/${d.getUTCDate()}`;}
   return String(v??"").trim();
 }
-const reActive=c=>c.status==="開案中"||c.status==="列管中";
+// 主管名單只列開案中，列管中不算
+const reActive=c=>c.status==="開案中";
 function reParse(wb){
   const XL=window.XLSX;
   for(const sn of wb.SheetNames){
@@ -4652,7 +4653,15 @@ function reParse(wb){
 }
 // 先用案號配對，配不到再用姓名；姓名重複無法判斷的另外列出
 function reCompare(fileList,cases){
-  const res={pairs:[],onlyFile:[],onlyApp:[],inactive:[],lvDiff:[],noDiff:[],ambiguous:[]};
+  const res={pairs:[],onlyFile:[],onlyApp:[],inactive:[],lvDiff:[],noDiff:[],nameDiff:[],ambiguous:[],dupFile:[]};
+  // 名單裡同一人出現兩次以上：有案號用案號判斷，沒案號用姓名；第一列拿去配對，其餘列出來
+  const seen=new Map();
+  fileList=fileList.filter(f=>{
+    const k=reNo(f.no)?"no:"+reNo(f.no):(reName(f.name)?"name:"+reName(f.name):"");
+    if(!k)return true;
+    if(seen.has(k)){res.dupFile.push({f,first:seen.get(k)});return false;}
+    seen.set(k,f);return true;
+  });
   const used=new Set();
   const index=(fn)=>{const m=new Map();cases.forEach(c=>{const k=fn(c);if(!k)return;if(!m.has(k))m.set(k,[]);m.get(k).push(c);});return m;};
   const byNo=index(c=>reNo(c.caseNo)),byName=index(c=>reName(c.name));
@@ -4672,13 +4681,14 @@ function reCompare(fileList,cases){
     if(!reActive(p.c))res.inactive.push(p);
     if(p.f.lv&&reLv(p.c.changeLevel)!==p.f.lv)res.lvDiff.push(p);
     if(p.by==="name"&&p.f.no&&reNo(p.f.no)!==reNo(p.c.caseNo))res.noDiff.push(p);
+    if(p.by==="no"&&reName(p.f.name)&&reName(p.c.name)&&reName(p.f.name)!==reName(p.c.name))res.nameDiff.push(p);
   });
   const amb=new Set(res.ambiguous.flatMap(a=>a.hits.map(c=>c.id)));
   cases.filter(c=>reActive(c)&&!used.has(c.id)&&!amb.has(c.id)).forEach(c=>res.onlyApp.push(c));
   return res;
 }
 
-function CaseReconcile({data,userName}){
+function CaseReconcile({data,setData,onSave,userName}){
   const [file,setFile]=useState(()=>window._reconCache||null);
   const [worker,setWorker]=useState(()=>window._reconCache?.worker??null);
   const [err,setErr]=useState("");
@@ -4698,6 +4708,24 @@ function CaseReconcile({data,userName}){
     finally{setLoading(false);}
   };
   const pickWorker=w=>{setWorker(w);if(window._reconCache)window._reconCache.worker=w;};
+  // ── 在比對頁直接打開個案編輯視窗，自己確認後再改 ──
+  const [editCase,setEditCase]=useState(null);
+  const [msg,setMsg]=useState("");
+  // 存檔邏輯照個案管理的 saveEdit：改了等級就自動記一筆等級異動
+  const saveEdit=async updated=>{
+    const prev=(data.cases||[]).find(c=>c.id===updated.id);
+    for(const f of ["systemLevel","initialLevel","changeLevel"]){
+      if(prev&&prev[f]&&updated[f]&&prev[f]!==updated[f]){
+        const record={id:uid(),caseId:updated.id,caseName:updated.name,date:toDay(),field:f,from:prev[f],to:updated[f],note:"",auto:true};
+        setData(d=>({...d,levelHistory:[...(d.levelHistory||[]),record]}));
+        await onSave("levelHistory",record);
+      }
+    }
+    setData(d=>({...d,cases:(d.cases||[]).map(c=>c.id===updated.id?updated:c)}));
+    await onSave("cases",updated);
+    setMsg(`已儲存「${updated.name}」，比對結果已更新`);
+  };
+  const editBtn=c=><button onClick={()=>{setMsg("");setEditCase(c);}} style={{marginLeft:10,padding:"2px 10px",borderRadius:6,border:"1px solid #5E8A5A",background:"#fff",color:"#3E6A3A",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:font}}>編輯</button>;
   const list=file?(worker?file.list.filter(x=>x.worker===worker):file.list):[];
   const res=file?reCompare(list,data.cases||[]):null;
   const appActive=(data.cases||[]).filter(reActive);
@@ -4726,6 +4754,7 @@ function CaseReconcile({data,userName}){
       </div>
       <input ref={ref} type="file" accept=".xlsx,.xlsm,.xls" style={{display:"none"}} onChange={e=>{load(e.target.files?.[0]);e.target.value="";}}/>
       {err&&<div style={{fontSize:12,color:"#A03030",marginBottom:8}}>{err}</div>}
+      {msg&&<div style={{fontSize:12,color:"#2A7A4A",background:"#E8F5EE",borderRadius:8,padding:"6px 10px",marginBottom:8}}>✓ {msg}</div>}
       {file&&(
         <>
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:12,color:C.muted,marginBottom:10}}>
@@ -4750,20 +4779,25 @@ function CaseReconcile({data,userName}){
               <div style={{fontSize:14,color:C.text,marginTop:2}}>主管 <b>{list.length}</b>　系統 <b style={{color:list.length===appActive.length?C.primary:C.accent}}>{appActive.length}</b></div>
             </div>
           </div>
-          <div style={{fontSize:11,color:C.muted,marginTop:6}}>系統的數字是案況「開案中」加「列管中」，依現在等級分組。{appNoLv>0?`系統有 ${appNoLv} 個開案中個案沒填等級。`:""}{fileNoLv>0?`名單有 ${fileNoLv} 筆分級看不懂。`:""}</div>
+          <div style={{fontSize:11,color:C.muted,marginTop:6}}>系統的數字是案況「開案中」，不含列管中，依現在等級分組。{appNoLv>0?`系統有 ${appNoLv} 個開案中個案沒填等級，或等級不是一到四級。`:""}{fileNoLv>0?`名單有 ${fileNoLv} 筆分級看不懂。`:""}</div>
           <Sec title="主管名單有、系統沒有" color="#FFF4E0" items={res.onlyFile} hint="案號和姓名都配不到。可能是系統漏建，或案號、姓名寫法不同。"
             render={f=><>{who(f.no,f.name)}<span style={{marginLeft:8}}>{f.lvRaw}</span>{f.open&&<span style={{color:C.muted,marginLeft:8}}>開案 {f.open}</span>}</>}/>
-          <Sec title="系統有、主管名單沒有" color="#FFF4E0" items={res.onlyApp} hint="系統是開案中或列管中，但名單裡找不到。可能已經結案還沒改，或名單漏列。"
-            render={c=><>{who(c.caseNo,c.name)}<span style={{marginLeft:8}}>{c.changeLevel?`${c.changeLevel}級`:"沒填等級"}</span><span style={{color:C.muted,marginLeft:8}}>{c.status}</span></>}/>
-          <Sec title="等級不同" color="#FFF4E0" items={res.lvDiff} hint="以主管名單為準的話，要到個案管理改現在等級，系統才會記下等級異動。"
-            render={p=><>{who(p.c.caseNo||p.f.no,p.c.name||p.f.name)}<span style={{marginLeft:8}}>主管 {p.f.lvRaw}</span><span style={{marginLeft:8,color:C.accent,fontWeight:600}}>系統 {p.c.changeLevel?`${p.c.changeLevel}級`:"沒填"}</span></>}/>
+          <Sec title="系統有、主管名單沒有" color="#FFF4E0" items={res.onlyApp} hint="系統是開案中，但名單裡找不到。如果已經結案，按「編輯」把案況改成結案；也可能是名單漏列。"
+            render={c=><>{who(c.caseNo,c.name)}<span style={{marginLeft:8}}>{c.changeLevel?`${c.changeLevel}級`:"沒填等級"}</span><span style={{color:C.muted,marginLeft:8}}>{c.status}</span>{editBtn(c)}</>}/>
+          <Sec title="等級不同" color="#FFF4E0" items={res.lvDiff} hint="確認以哪邊為準後，按「編輯」修改現在等級。存檔時會跟在個案管理一樣記下等級異動。"
+            render={p=><>{who(p.c.caseNo||p.f.no,p.c.name||p.f.name)}<span style={{marginLeft:8}}>主管 {p.f.lvRaw}</span><span style={{marginLeft:8,color:C.accent,fontWeight:600}}>系統 {p.c.changeLevel?`${p.c.changeLevel}級`:"沒填"}</span>{editBtn(p.c)}</>}/>
           <Sec title="名單有，但系統案況不是開案中" color="#FFF4E0" items={res.inactive}
-            render={p=><>{who(p.c.caseNo,p.c.name)}<span style={{marginLeft:8}}>主管 {p.f.lvRaw}</span><span style={{marginLeft:8,color:C.accent,fontWeight:600}}>系統 {p.c.status}</span></>}/>
-          <Sec title="用姓名配對，但案號不同" color="#EAF0F8" items={res.noDiff} hint="同一個人，但系統的案號跟名單不一樣，建議把系統案號改成名單上的。"
-            render={p=><><b style={{color:C.text}}>{p.c.name}</b><span style={{marginLeft:8}}>名單案號 {p.f.no}</span><span style={{marginLeft:8,color:C.accent}}>系統案號 {p.c.caseNo||"空白"}</span></>}/>
+            render={p=><>{who(p.c.caseNo,p.c.name)}<span style={{marginLeft:8}}>主管 {p.f.lvRaw}</span><span style={{marginLeft:8,color:C.accent,fontWeight:600}}>系統 {p.c.status}</span>{editBtn(p.c)}</>}/>
+          <Sec title="用姓名配對，但案號不同" color="#EAF0F8" items={res.noDiff} hint="同一個人，但系統的案號跟名單不一樣。確認後按「編輯」修改案號。"
+            render={p=><><b style={{color:C.text}}>{p.c.name}</b><span style={{marginLeft:8}}>名單案號 {p.f.no}</span><span style={{marginLeft:8,color:C.accent}}>系統案號 {p.c.caseNo||"空白"}</span>{editBtn(p.c)}</>}/>
+          <Sec title="案號相同，但姓名不同" color="#FFF4E0" items={res.nameDiff} hint="用案號配到同一筆，但姓名不一樣。可能是案號打錯、姓名改過或寫法不同，請確認是不是同一個人。"
+            render={p=><><span style={{color:C.muted}}>案號 {p.c.caseNo}</span><span style={{marginLeft:8}}>名單姓名 <b style={{color:C.text}}>{p.f.name}</b></span><span style={{marginLeft:8,color:C.accent}}>系統姓名 <b>{p.c.name}</b></span>{editBtn(p.c)}</>}/>
+          <Sec title="名單裡重複出現" color="#EAF0F8" items={res.dupFile} hint="主管名單裡同一個案號或姓名出現兩次以上，只拿第一列比對，其餘列在這裡，可能是名單重複登打。"
+            render={d=><>{who(d.f.no,d.f.name)}<span style={{marginLeft:8}}>{d.f.lvRaw}</span>{d.first.lvRaw!==d.f.lvRaw&&<span style={{marginLeft:8,color:C.accent}}>第一列是 {d.first.lvRaw}</span>}</>}/>
           <Sec title="同名，沒辦法判斷是哪一位" color="#EAF0F8" items={res.ambiguous} hint="系統裡有好幾個同名個案，又沒有案號可以對，請人工確認。"
-            render={a=><>{who(a.f.no,a.f.name)}<span style={{marginLeft:8}}>{a.f.lvRaw}</span><span style={{color:C.muted,marginLeft:8}}>系統同名 {a.hits.length} 位</span></>}/>
-          <div style={{fontSize:11,color:C.muted,marginTop:10}}>配對方式：先用案號，配不到再用姓名。兩邊一致的有 {res.pairs.filter(p=>!res.lvDiff.includes(p)&&!res.inactive.includes(p)).length} 筆。</div>
+            render={a=><>{who(a.f.no,a.f.name)}<span style={{marginLeft:8}}>{a.f.lvRaw}</span><span style={{color:C.muted,marginLeft:8}}>系統同名 {a.hits.length} 位：</span>{a.hits.map(c=><span key={c.id} style={{marginLeft:8}}>{c.caseNo||"沒有案號"}・{c.changeLevel?c.changeLevel+"級":"沒填等級"}・{c.status}{editBtn(c)}</span>)}</>}/>
+          {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
+          <div style={{fontSize:11,color:C.muted,marginTop:10}}>配對方式：先用案號，配不到再用姓名。兩邊一致的有 {res.pairs.filter(p=>!res.lvDiff.includes(p)&&!res.inactive.includes(p)&&!res.nameDiff.includes(p)).length} 筆。</div>
         </>
       )}
     </div>
