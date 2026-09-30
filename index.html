@@ -315,7 +315,7 @@ async function fbDelete(collection,id){
 }
 
 // ── 全部資料備份（匯出 JSON）─────────────────────────────────────
-const BACKUP_COLS=["cases","visits","resources","diary","events","caseRecords","levelHistory","resourceMap"];
+const BACKUP_COLS=["cases","visits","resources","diary","events","caseRecords","levelHistory","resourceMap","consultations"];
 async function exportBackup(){
   if(!db)throw new Error("尚未連線雲端");
   const data={},counts={};
@@ -627,7 +627,7 @@ function ExcelImporter({onImport,onClose}){
 
 
 // ── DASHBOARD ───────────────────────────────────────────────────
-function QuickRecordPanel({data,setData,onSave}){
+function QuickRecordPanel({data,setData,onSave,setView}){
   const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:"",serviceLocation:"",timeRange:""};
   const [form,setForm]=useState(blank);
   const [saved,setSaved]=useState(false);
@@ -656,6 +656,7 @@ function QuickRecordPanel({data,setData,onSave}){
         <span style={{fontSize:16}}>⚡</span>
         <span style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:serif}}>快速聯繫紀錄</span>
         <span style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
+        {setView&&<button onClick={()=>{window._czOpenNew=true;setView("consult");}} style={{marginLeft:"auto",padding:"4px 12px",borderRadius:20,border:"1px solid rgba(255,255,255,0.7)",background:"transparent",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600}}>☎ 諮詢來電，不開案</button>}
       </div>
       <div style={{padding:"16px 20px"}}>
         <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
@@ -838,7 +839,7 @@ function Dashboard({data,setView,setData,onSave}){
   const Stat=({label,val,sub,color})=>(<div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,padding:"20px 24px",flex:1,minWidth:120}}><div style={{fontSize:30,fontWeight:700,color:color||C.primary,fontFamily:serif,lineHeight:1}}>{val}</div><div style={{fontSize:13,fontWeight:600,color:C.text,marginTop:6}}>{label}</div>{sub&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{sub}</div>}</div>);
   return(
     <div>
-      <QuickRecordPanel data={data} setData={setData} onSave={onSave}/>
+      <QuickRecordPanel data={data} setData={setData} onSave={onSave} setView={setView}/>
       <div style={{marginBottom:20}}><div style={{fontSize:11,color:C.muted,letterSpacing:"0.12em",marginBottom:4}}>TODAY</div><div style={{fontSize:20,fontWeight:700,fontFamily:serif,color:C.text}}>{new Date().toLocaleDateString("zh-TW",{year:"numeric",month:"long",day:"numeric",weekday:"long"})}</div></div>
       <div className="stat-row" style={{display:"flex",gap:14,marginBottom:24,flexWrap:"wrap"}}>
         <Stat label="開案中" val={openCount} sub={`共 ${data.cases.length} 個案`}/>
@@ -4331,7 +4332,7 @@ function UserSettings({userName,onSave,onClose}){
 
 // ── SIDEBAR ─────────────────────────────────────────────────────
 function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettings}){
-  const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"},{id:"monthly",label:"月報表",icon:"📊"}];
+  const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"consult",label:"諮詢紀錄",icon:"☎"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"},{id:"monthly",label:"月報表",icon:"📊"}];
   return(
     <div className="sidebar" style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0,height:"100vh"}}>
       <div className="brand" style={{padding:"28px 20px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
@@ -4349,6 +4350,259 @@ function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettin
         {onLogout&&<button onClick={onLogout} style={{width:"100%",padding:"8px 16px",background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⎋ 登出</button>}
         <div style={{padding:"10px 16px",fontSize:10,color:"rgba(255,255,255,0.2)",textAlign:"center"}}>{new Date().toLocaleDateString("zh-TW",{month:"long",day:"numeric"})}</div>
       </div>
+    </div>
+  );
+}
+
+// ── 諮詢紀錄：不開案的來電諮詢，對應派案及諮詢紀錄表「一般諮詢紀錄」A 到 AG 欄 ──
+// 選項照原檔「說明頁&列表清冊」一字不改，包含錯字與尾端空白，貼回原檔統計才對得上
+const CZ_LISTS={"svcType": ["需求評估中心(含ICF)", "一般諮詢", "其他單位轉介", "身障科交辦案件(含1999、議員、539)", "獨居且行動不便訪視名冊", "生涯轉銜名單", "高照顧負荷家庭名單(開發)", "等候機構安置名單(開發)", "緊急救援系統", "低收註銷關懷名單(開發)", "早療篩檢名單(開發)"], "source": ["主動發掘", "自行申請", "社會大眾通報", "社政", "需求評估中心", "民政", "勞政", "衛政", "警政", "教政", "1999(含市政信箱)", "其他(請於「說明」填寫)"], "age": ["9以下", "10-19", "20-29", "30-39", "40-49", "50-59", "60-64", "65以上"], "gender": ["男", "女"], "oldDis": ["視障", "聽障", "機能障", "聲語障", "肢障", "智障", "重器障", "顏面傷殘", "植物人", "失智症", "自閉症", "慢性精神病", "多重障", "頑性癲癇", "罕見疾病", "其他認定(請於「說明」填寫)"], "newDis": ["第1類", "第2類", "第3類", "第4類", "第5類", "第6類", "第7類", "第8類"], "disLevel": ["輕度", "中度", "重度", "極重度"], "interviewee": ["本人", "配偶", "父母", "子女", "祖父母", "孫子女", "手足", "朋友", "專業人員", "其他(請於「說明」填寫)"], "cgAge": ["54歲以下", "55歲以上,59歲以下  ", "60歲以上,64歲以下  ", "65歲以上,69歲以下  ", "70歲以上,79歲以下  ", "80歲以上"], "yesno": ["是", "否"], "region": ["臺北市中正區", "臺北市萬華區", "臺北市其他區", "外縣市"], "living": ["獨居", "與家人同住", "入住機構", "居住外縣市", "不願提供資訊", "與他人同住(請於「說明」填寫)", "其他(請於「說明」填寫)"], "result": ["列入一級案", "列入二級案", "列入三級案", "列入四級案", "經評估不開案", "提供福利諮詢", "電訪聯繫後無需求 ", "電訪聯繫後須進一步評估", "無法聯繫", "拒絕接受服務", "不願透露資訊", "列入一般案"], "noOpen": ["無身心障礙證明", "身障者已有個管單位開案協助中", "身障者或家屬無意願接受服務", "個案已入住機構 個案入監服刑", "個案設籍於外縣市", "身障者或家屬有自行解決問題之能力", "無服務使用需求", "個案死亡", "多次聯繫未果", "已使用所需資源且無其他服務需求", "其他(請於「說明」填寫)"], "follow": ["一級案開案(請說明開案社工姓名)", "二級案開案(請說明開案社工姓名)", "三級案開案(請說明開案社工姓名)", "四級案開案(請說明開案社工姓名)", "經評估不開案(請在說明欄位寫原因及處理結果)"], "alone": ["是", "否", "不清楚"], "elder": ["無其他同住者", "否", "不清楚", "有其他同住者"], "recType": ["有紙本服務紀綠(新領證)", "有紙本服務紀錄(福利諮詢)", "無紙本服務紀錄(電話福利諮詢)"], "level": ["一", "二", "三", "四", "不符開案指標"], "status": ["開案中", "追蹤中", "已結案", "不開案", "已併案"]};
+const CZ_HEAD=["身分證字號", "姓名", "服務類型", "來源", "轉介單位", "生理性別", "年次", "年齡", "舊制障別", "新制障別", "障礙等級", "訪談對象", "主要照顧者身分", "照顧者性別", "主要照顧者年齡", "主要照顧者領證", "戶籍地", "居住地", "居住狀況", "諮詢完成日", "諮詢結果", "未開案原因", "列冊郵寄名單", "諮詢人次", "追蹤結果", "說明", "獨居", "雙老", "諮詢紀錄", "簡要服務紀錄", "個案等級", "目前服務狀況", "諮詢社工"];
+const CZ_COLS=[
+  {k:"idNo",t:"text"},{k:"name",t:"text"},{k:"svcType",t:"sel",l:"svcType"},{k:"source",t:"sel",l:"source"},{k:"referral",t:"text"},
+  {k:"gender",t:"sel",l:"gender"},{k:"birthYear",t:"num"},{k:"ageBand",t:"sel",l:"age"},{k:"oldDis",t:"sel",l:"oldDis"},{k:"newDis",t:"sel",l:"newDis"},
+  {k:"disLevel",t:"sel",l:"disLevel"},{k:"interviewee",t:"sel",l:"interviewee"},{k:"cgRole",t:"list",l:"interviewee"},{k:"cgGender",t:"sel",l:"gender"},{k:"cgAge",t:"sel",l:"cgAge"},
+  {k:"cgCert",t:"sel",l:"yesno"},{k:"regAddr",t:"sel",l:"region"},{k:"liveAddr",t:"sel",l:"region"},{k:"living",t:"sel",l:"living"},{k:"doneDate",t:"date"},
+  {k:"result",t:"sel",l:"result"},{k:"noOpen",t:"sel",l:"noOpen"},{k:"mailList",t:"sel",l:"yesno"},{k:"times",t:"num"},{k:"follow",t:"sel",l:"follow"},
+  {k:"note",t:"text"},{k:"alone",t:"sel",l:"alone"},{k:"elder",t:"sel",l:"elder"},{k:"recType",t:"sel",l:"recType"},{k:"summary",t:"area"},
+  {k:"level",t:"sel",l:"level"},{k:"svcStatus",t:"sel",l:"status"},{k:"worker",t:"text"}
+].map((c,i)=>({...c,label:CZ_HEAD[i]}));
+const CZ_BY_KEY=Object.fromEntries(CZ_COLS.map(c=>[c.k,c]));
+const CZ_GROUPS=[
+  ["諮詢",["doneDate","svcType","source","referral","interviewee","times","recType","summary"]],
+  ["身障者資料",["name","idNo","gender","birthYear","ageBand","oldDis","newDis","disLevel"]],
+  ["居住",["regAddr","liveAddr","living","alone","elder"]],
+  ["主要照顧者",["cgRole","cgGender","cgAge","cgCert"]],
+  ["結果",["result","noOpen","follow","level","svcStatus","mailList","note","worker"]],
+];
+// 年次可以填民國或西元，年齡區間照清單的八段
+function czAgeBand(birthYear,doneDate){
+  let y=parseInt(birthYear,10);if(!y)return"";
+  if(y>1911)y-=1911;
+  const cy=(parseInt(String(doneDate||toDay()).slice(0,4),10)||new Date().getFullYear())-1911;
+  const age=cy-y;if(age<0||age>130)return"";
+  const tops=[9,19,29,39,49,59,64,Infinity];
+  return CZ_LISTS.age[tops.findIndex(t=>age<=t)]||"";
+}
+const czNeedNote=v=>/請於「說明」填寫|請說明開案社工姓名|請在說明欄位/.test(String(v||""));
+
+function ConsultPage({data,setData,onSave,onDelete,userName}){
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth()+1);
+  const monthStr=`${year}-${String(month).padStart(2,"0")}`;
+  const rocYear=year-1911;
+  const blank=()=>({...Object.fromEntries(CZ_COLS.map(c=>[c.k,""])),doneDate:toDay(),times:"1",svcType:"一般諮詢",worker:userName||""});
+  const [showForm,setShowForm]=useState(()=>{if(window._czOpenNew){window._czOpenNew=false;return true;}return false;});
+  const [editId,setEditId]=useState(null);
+  const [form,setForm]=useState(blank);
+  const [search,setSearch]=useState("");
+  const [openId,setOpenId]=useState(null);
+  const [err,setErr]=useState("");
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{
+    if(data.consultations!==undefined)return;
+    let alive=true;
+    (async()=>{
+      try{const list=await fbGet("consultations");if(alive)setData(d=>d.consultations!==undefined?d:{...d,consultations:list});}
+      catch(e){console.error(e);if(alive){setErr("讀取諮詢紀錄失敗："+e.message);setData(d=>d.consultations!==undefined?d:{...d,consultations:[]});}}
+    })();
+    return()=>{alive=false;};
+  },[]);
+  const all=data.consultations||[];
+  const loading=data.consultations===undefined;
+  const monthList=all.filter(z=>(z.doneDate||"").startsWith(monthStr)).sort((a,b)=>(b.doneDate||"").localeCompare(a.doneDate||"")||(b.createdAt||"").localeCompare(a.createdAt||""));
+  const shown=search.trim()?monthList.filter(z=>[z.name,z.summary,z.note,z.idNo].some(v=>String(v||"").includes(search.trim()))):monthList;
+  const sumTimes=list=>list.reduce((s,z)=>s+(parseInt(z.times,10)||0),0);
+  const byG=g=>monthList.filter(z=>z.gender===g);
+  const noGender=monthList.filter(z=>!z.gender).length;
+
+  const set=(k,v)=>setForm(f=>{
+    const n={...f,[k]:v};
+    if(k==="birthYear"||k==="doneDate"){const b=czAgeBand(k==="birthYear"?v:f.birthYear,k==="doneDate"?v:f.doneDate);if(b)n.ageBand=b;}
+    return n;
+  });
+  const startNew=()=>{setForm(blank());setEditId(null);setShowForm(true);window.scrollTo({top:0,behavior:"smooth"});};
+  const startEdit=z=>{setForm({...blank(),...z});setEditId(z.id);setShowForm(true);window.scrollTo({top:0,behavior:"smooth"});};
+  const cancel=()=>{setShowForm(false);setEditId(null);setForm(blank());};
+  const save=async()=>{
+    if(!form.doneDate){alert("請填諮詢完成日");return;}
+    const t=parseInt(form.times,10);
+    if(!(t>=1&&t<=99)){alert("諮詢人次要填 1 到 99 的整數");return;}
+    if(!form.gender&&!confirm("沒有填生理性別，原檔的每月諮詢統計不會算到這筆。確定要存嗎？"))return;
+    const prev=editId?all.find(x=>x.id===editId):null;
+    // 年次存民國年；打西元的自動換算
+    const by=parseInt(form.birthYear,10);
+    const birthYear=by>1911?String(by-1911):(form.birthYear===""||form.birthYear==null?"":String(form.birthYear));
+    const rec={...(prev||{}),...form,birthYear,times:String(t),name:String(form.name||"").trim(),idNo:String(form.idNo||"").trim().toUpperCase(),id:editId||uid(),createdAt:prev?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+    setBusy(true);
+    try{
+      setData(d=>({...d,consultations:[...(d.consultations||[]).filter(x=>x.id!==rec.id),rec]}));
+      await onSave("consultations",rec);
+      const [y,m]=rec.doneDate.split("-").map(Number);
+      if(y&&m){setYear(y);setMonth(m);}
+      cancel();
+    }finally{setBusy(false);}
+  };
+  const del=async z=>{
+    if(!confirm(`確定刪除 ${z.doneDate} ${z.name||"未留姓名"} 這筆諮詢？`))return;
+    setData(d=>({...d,consultations:(d.consultations||[]).filter(x=>x.id!==z.id)}));
+    if(onDelete)await onDelete("consultations",z.id);
+  };
+  // 轉成個案：新增一個個案，諮詢這筆保留並標記
+  const toCase=async z=>{
+    const linked=z.caseId&&(data.cases||[]).find(c=>c.id===z.caseId);
+    if(linked){alert(`這筆已經轉成個案：${linked.name}`);return;}
+    const lvMap={"列入一級案":"一","列入二級案":"二","列入三級案":"三","列入四級案":"四"};
+    const lv=["一","二","三","四"].includes(z.level)?z.level:(lvMap[String(z.result||"").trim()]||"");
+    const age=(()=>{let y=parseInt(z.birthYear,10);if(!y)return"";if(y>1911)y-=1911;const a=new Date().getFullYear()-1911-y;return a>=0&&a<=130?String(a):"";})();
+    const dup=(data.cases||[]).filter(c=>(z.idNo&&c.idNo&&c.idNo.toUpperCase()===z.idNo.toUpperCase())||(z.name&&c.name===z.name));
+    const lines=[`姓名：${z.name||"未填"}`,`生理性別：${z.gender||"未填"}`,`新制障別：${z.newDis||"未填"}`,`障礙等級：${z.disLevel||"未填"}`,`現在等級：${lv||"未填"}`,`案況：開案中`];
+    let msg="要把這筆諮詢轉成個案嗎？諮詢紀錄會保留。\n\n"+lines.join("\n");
+    if(dup.length)msg+=`\n\n注意：個案管理裡已經有同名或同身分證字號的個案：${dup.map(c=>c.name).join("、")}`;
+    if(!z.name)msg+="\n\n這筆沒有填姓名，建議先補上再轉。";
+    if(!confirm(msg))return;
+    const c={id:uid(),name:z.name||"",caseNo:"",idNo:z.idNo||"",status:"開案中",source:String(z.source||"").trim(),referralUnit:z.referral||"",gender:z.gender||"",birthDate:"",age,
+      disabilityType:z.newDis||"",disabilitySub:"",disabilityLevel:z.disLevel||"",disabilityDetail:"",registeredAddr:z.regAddr||"",addr:z.liveAddr||"",livingStatus:String(z.living||"").trim(),
+      livingAlone:z.alone==="是"||z.alone==="否"?z.alone:"",elderlyCouple:"",mainWorker:z.worker||userName||"",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),
+      systemLevel:"",initialLevel:lv,changeLevel:lv,phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:`由諮詢紀錄轉入，諮詢完成日 ${z.doneDate||""}`};
+    const zz={...z,caseId:c.id,updatedAt:new Date().toISOString()};
+    setData(d=>({...d,cases:[...(d.cases||[]),c],consultations:(d.consultations||[]).map(x=>x.id===z.id?zz:x)}));
+    await onSave("cases",c);
+    await onSave("consultations",zz);
+    alert(`已新增個案「${c.name||"未填姓名"}」，可以到個案管理補其他資料。`);
+  };
+  const download=()=>{
+    if(monthList.length===0){alert("這個月沒有諮詢紀錄");return;}
+    if(noGender>0&&!confirm(`這個月有 ${noGender} 筆沒填生理性別，原檔的每月諮詢統計不會算到。還是要下載嗎？`))return;
+    const XL=window.XLSX;
+    const rows=[CZ_HEAD];
+    const list=[...monthList].sort((a,b)=>(a.doneDate||"").localeCompare(b.doneDate||"")||(a.createdAt||"").localeCompare(b.createdAt||""));
+    list.forEach(z=>rows.push(CZ_COLS.map(c=>{
+      const v=z[c.k];
+      if(c.t==="num"){const n=parseInt(v,10);return Number.isFinite(n)?n:"";}
+      if(c.t==="date")return"";
+      return v==null?"":String(v);
+    })));
+    const ws=XL.utils.aoa_to_sheet(rows);
+    const dc=CZ_COLS.findIndex(c=>c.t==="date");
+    list.forEach((z,i)=>{const s=rbSerial(z.doneDate);if(s!==null)ws[XL.utils.encode_cell({r:i+1,c:dc})]={t:"n",v:s,z:"yyyy/m/d"};});
+    ws["!cols"]=CZ_COLS.map(c=>({wch:c.t==="area"?40:c.k==="note"?24:12}));
+    const wb=XL.utils.book_new();
+    XL.utils.book_append_sheet(wb,ws,"一般諮詢紀錄");
+    XL.writeFile(wb,`一般諮詢紀錄_民${rocYear}年${month}月.xlsx`);
+  };
+  const prevMonth=()=>{if(month===1){setYear(y=>y-1);setMonth(12);}else setMonth(m=>m-1);};
+  const nextMonth=()=>{if(month===12){setYear(y=>y+1);setMonth(1);}else setMonth(m=>m+1);};
+
+  // 注意：這裡用函式產生欄位，不要改成元件，否則每打一個字輸入框都會失去焦點
+  const field=k=>{
+    const c=CZ_BY_KEY[k];
+    const v=form[k]??"";
+    const wide=c.t==="area"||k==="note";
+    let input;
+    if(c.t==="sel")input=<select value={v} onChange={e=>set(k,e.target.value)} style={inp({fontSize:13})}><option value="">未選</option>{CZ_LISTS[c.l].map(o=><option key={o} value={o}>{o.trim()}</option>)}</select>;
+    else if(c.t==="list")input=<><input value={v} onChange={e=>set(k,e.target.value)} list={"cz-list-"+c.l} placeholder="可選可打字" style={inp({fontSize:13})}/><datalist id={"cz-list-"+c.l}>{CZ_LISTS[c.l].map(o=><option key={o} value={o}/>)}</datalist></>;
+    else if(c.t==="date")input=<input type="date" value={v} onChange={e=>set(k,e.target.value)} style={inp({fontSize:13})}/>;
+    else if(c.t==="num")input=<input type="number" value={v} min={k==="times"?1:undefined} max={k==="times"?99:undefined} onChange={e=>set(k,e.target.value)} placeholder={k==="birthYear"?"民國年，例如 75":""} style={inp({fontSize:13})}/>;
+    else if(c.t==="area")input=<textarea value={v} onChange={e=>set(k,e.target.value)} rows={4} style={inp({fontSize:13,lineHeight:1.7,resize:"vertical"})}/>;
+    else input=<input value={v} onChange={e=>set(k,e.target.value)} style={inp({fontSize:13})}/>;
+    const req=k==="doneDate"||k==="gender";
+    return(
+      <div key={k} style={wide?{gridColumn:"span 2"}:{}}>
+        <Label>{c.label}{req?" *":""}{k==="ageBand"&&form.birthYear?"　依年次自動帶入":""}</Label>
+        {input}
+        {k==="note"&&CZ_COLS.some(cc=>czNeedNote(form[cc.k]))&&<div style={{fontSize:11,color:C.accent,marginTop:3}}>你選的「{CZ_COLS.filter(cc=>czNeedNote(form[cc.k])).map(cc=>String(form[cc.k]).trim()).join("、")}」要在這裡補充說明</div>}
+      </div>
+    );
+  };
+
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>諮詢紀錄</h1>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>‹</button>
+          <span style={{fontSize:15,fontWeight:700,color:C.text,minWidth:110,textAlign:"center",fontFamily:serif}}>民{rocYear}年 {month}月</span>
+          <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>›</button>
+          <button onClick={download} style={{padding:"7px 14px",borderRadius:8,border:"none",background:"#4A6E8A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600}}>⬇ 下載本月一般諮詢紀錄</button>
+          <Btn variant={showForm?"secondary":"primary"} onClick={()=>showForm?cancel():startNew()} style={{fontSize:13,padding:"7px 16px"}}>{showForm?"取消":"+ 新增諮詢"}</Btn>
+        </div>
+      </div>
+      <div style={{fontSize:12,color:C.muted,marginBottom:16,lineHeight:1.7}}>記錄不開案的來電或臨櫃諮詢，跟個案紀錄分開存，不會算進月報表的服務量。下載的 Excel 欄位跟「一般諮詢紀錄」A 到 AG 欄相同，貼進原檔即可，AH、AI 輔助欄是公式，不用貼。</div>
+      {err&&<div style={{fontSize:12,color:"#A03030",background:"#FFF0F0",border:"1px solid #ECC8C8",borderRadius:8,padding:"6px 10px",marginBottom:12}}>{err}</div>}
+
+      {showForm&&(
+        <Card style={{marginBottom:20}}>
+          <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>{editId?"編輯諮詢":"新增諮詢"}</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:12}}>* 必填。生理性別和諮詢完成日是原檔每月統計用的欄位。</div>
+          {CZ_GROUPS.map(([title,keys])=>(
+            <div key={title} style={{marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.primary,borderBottom:`1px solid ${C.border}`,paddingBottom:4,marginBottom:10}}>{title}</div>
+              <div className="grid-2col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 16px"}}>{keys.map(field)}</div>
+            </div>
+          ))}
+          <div style={{display:"flex",gap:10,marginTop:6}}>
+            <Btn onClick={save} disabled={busy}>{busy?"儲存中...":editId?"更新":"儲存"}</Btn>
+            <Btn variant="secondary" onClick={cancel}>取消</Btn>
+          </div>
+        </Card>
+      )}
+
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        {[
+          {label:"本月諮詢筆數",val:monthList.length,color:C.primary},
+          {label:"諮詢人次",val:sumTimes(monthList),color:C.accent},
+          {label:"男",val:byG("男").length,sub:`${sumTimes(byG("男"))} 人次`,color:"#4A6E8A"},
+          {label:"女",val:byG("女").length,sub:`${sumTimes(byG("女"))} 人次`,color:"#8B6DB8"},
+        ].map(({label,val,color,sub})=>(
+          <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"14px 18px",flex:1,minWidth:100}}>
+            <div style={{fontSize:26,fontWeight:700,color,fontFamily:serif}}>{val}</div>
+            <div style={{fontSize:12,color:C.muted,marginTop:4}}>{label}{sub?`・${sub}`:""}</div>
+          </div>
+        ))}
+      </div>
+      {noGender>0&&<div style={{fontSize:12,color:C.accent,marginBottom:12}}>有 {noGender} 筆沒填生理性別，原檔的每月諮詢統計不會算到。</div>}
+
+      <input placeholder="搜尋姓名、身分證字號、紀錄內容..." value={search} onChange={e=>setSearch(e.target.value)} style={{...inp(),maxWidth:320,marginBottom:12}}/>
+      {loading?<div style={{fontSize:13,color:C.muted}}>讀取中...</div>
+        :shown.length===0?<div style={{fontSize:13,color:C.muted,padding:"10px 4px"}}>{monthList.length===0?"這個月還沒有諮詢紀錄。":"找不到符合的紀錄。"}</div>
+        :<div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+          {shown.map(z=>{
+            const open=openId===z.id;
+            const linked=z.caseId&&(data.cases||[]).find(c=>c.id===z.caseId);
+            return(
+              <div key={z.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                <div onClick={()=>setOpenId(open?null:z.id)} style={{display:"flex",gap:12,alignItems:"flex-start",padding:"12px 16px",cursor:"pointer",background:open?C.cardAlt:"transparent"}}>
+                  <div style={{fontSize:12,color:C.primary,fontWeight:700,minWidth:62,paddingTop:2}}>{fmtDate(z.doneDate)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                      <span style={{fontSize:14,fontWeight:700,color:C.text}}>{z.name||"未留姓名"}</span>
+                      {z.gender&&<span style={{fontSize:12,color:C.muted}}>{z.gender}</span>}
+                      {z.svcType&&<span style={{fontSize:11,padding:"1px 8px",borderRadius:20,background:"#EAF0F8",color:"#4A6E8A"}}>{z.svcType}</span>}
+                      {z.result&&<span style={{fontSize:11,padding:"1px 8px",borderRadius:20,background:"#FFF4E0",color:C.accent}}>{String(z.result).trim()}</span>}
+                      {linked&&<span style={{fontSize:11,padding:"1px 8px",borderRadius:20,background:"#E8F5EE",color:"#2A7A4A",fontWeight:600}}>已轉個案</span>}
+                    </div>
+                    <div style={{fontSize:12,color:C.muted,marginTop:3,...(open?{whiteSpace:"pre-wrap",wordBreak:"break-word"}:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"})}}>{z.summary||"沒有簡要服務紀錄"}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                    <Btn variant="secondary" onClick={()=>startEdit(z)} style={{padding:"4px 10px",fontSize:11}}>編輯</Btn>
+                    {!linked&&<Btn variant="accent" onClick={()=>toCase(z)} style={{padding:"4px 10px",fontSize:11}}>轉成個案</Btn>}
+                    <Btn variant="danger" onClick={()=>del(z)} style={{padding:"4px 10px",fontSize:11}}>刪除</Btn>
+                  </div>
+                </div>
+                {open&&(
+                  <div style={{padding:"4px 16px 14px 90px",display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"4px 16px",fontSize:12}}>
+                    {CZ_COLS.filter(c=>c.k!=="summary"&&String(z[c.k]??"").trim()).map(c=>(
+                      <div key={c.k}><span style={{color:C.muted}}>{c.label}：</span><span style={{color:C.text}}>{String(z[c.k]).trim()}</span></div>
+                    ))}
+                    {linked&&<div style={{gridColumn:"1/-1",color:"#2A7A4A"}}>已轉成個案：{linked.name}</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>}
     </div>
   );
 }
@@ -4487,6 +4741,7 @@ function App(){
         {view==="dashboard"&&<Dashboard data={data} setView={setView} setData={setData} onSave={onSave}/>}
         {view==="calendar"  &&<CalendarView data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="cases"    &&<CaseList  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
+        {view==="consult"  &&<ConsultPage data={data} setData={setData} onSave={onSave} onDelete={onDelete} userName={userName}/>}
         {view==="resources"&&<ResourceList data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="diary"    &&<DiaryLog  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="monthly"  &&<MonthlyReport data={data} setData={setData} onSave={onSave} onDelete={onDelete} userName={userName}/>}
