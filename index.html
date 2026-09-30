@@ -571,7 +571,11 @@ function ExcelImporter({onImport,onClose}){
       const XLSX=await loadXLSX();
       const buf=await file.arrayBuffer();
       const wb=XLSX.read(buf,{type:"array"});
-      const ws=wb.Sheets[wb.SheetNames[0]];
+      // 改讀第一個「未隱藏、且有標題列＋至少一筆資料」的工作表；都找不到時維持原本讀第一個工作表
+      const sheetMeta=(wb.Workbook&&wb.Workbook.Sheets)||[];
+      const sheetName=wb.SheetNames.find((n,i)=>!(sheetMeta[i]&&sheetMeta[i].Hidden)&&XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:""}).filter(r=>r.some(v=>v!=="")).length>=2)||wb.SheetNames[0];
+      if(wb.SheetNames.length>1)setFileName(file.name+"・工作表："+sheetName);
+      const ws=wb.Sheets[sheetName];
       const json=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
       if(json.length<2){alert("Excel 內容不足");setLoading(false);return;}
       const hdrs=json[0].map(h=>String(h).trim());
