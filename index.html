@@ -829,6 +829,662 @@ function QuickRecordPanel({data,setData,onSave,setView}){
   );
 }
 
+// ── ISP 期程提醒 ────────────────────────────────────────────────
+// 規則，2026/10/5 與社工逐條確認：
+//  1. 對象：現在等級第一、二級，案況開案中
+//  2. 首次 ISP：從開案時間起算 30 個工作日內完成；首次 ISP 寫好前現在等級改過，就從最新那次改動日起算
+//  3. 執行期間：每期 6 個月，一期接一期不留空窗；第一期從 ISP 開始執行日起算
+//  4. 定期 ISP：下一期要在本期最後一天前擬好，並和案家討論完
+//  5. 轉級：首次 ISP 寫好後現在等級改了，提醒填新 ISP 開始執行日，舊的那期在前一天結束；也可以選接續原週期
+//  6. 轉案：填前手目前這一期的開始執行日，接著往下走
+// 工作日：照 TAIWAN_HOLIDAYS 扣假日，補班日算上班
+// 新增欄位，都存在個案上：
+//  ispStarts：每次 ISP 開始執行的起點 [{date, kind:"首次"|"轉級"|"轉案"|"匯入", note}]
+//  ispChecks：已擬好下一期 ISP 的期別 [{start:該期開始日, checkedAt:打勾那天}]
+//  ispLevelAck：選擇接續原週期、不用新起點的等級異動紀錄 [{id, at:處理那天}]
+const ISP_LEVELS=["一","二"];
+const ISP_FIRST_WORKDAYS=30;
+const ISP_PERIOD_MONTHS=6;
+const ISP_REMIND_DAYS=30;
+const ISP_START_KINDS=["首次","轉級","轉案","匯入"];
+// 補班日，依人事行政總處辦公日曆表；115、116 年沒有補班
+const ISP_MAKEUP_WORKDAYS=["2024-02-17","2025-02-08"];
+const ispIsDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(s||"");
+function ispYMD(dt){return`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;}
+function ispAddDays(d,n){const [y,m,day]=d.split("-").map(Number);return ispYMD(new Date(y,m-1,day+n));}
+// 加月份；月底對不上就取該月最後一天，例如 8/31 加半年是 2/28
+function ispAddMonths(d,n){const [y,m,day]=d.split("-").map(Number);const t=new Date(y,m-1+n,1);const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();t.setDate(Math.min(day,last));return ispYMD(t);}
+function ispDaysLeft(due,today=toDay()){const p=s=>{const [y,m,d]=s.split("-").map(Number);return Date.UTC(y,m-1,d);};return Math.round((p(due)-p(today))/86400000);}
+// 假日表在檔案後段才定義，所以第一次用到時才建立
+let _ispHoliday=null;
+function ispHoliday(){
+  if(!_ispHoliday){
+    const src=typeof TAIWAN_HOLIDAYS!=="undefined"?TAIWAN_HOLIDAYS:[];
+    _ispHoliday={set:new Set(src.map(h=>h.date)),maxYear:src.reduce((m,h)=>Math.max(m,Number(String(h.date).slice(0,4))||0),0)};
+  }
+  return _ispHoliday;
+}
+function ispIsWorkday(d){
+  if(ISP_MAKEUP_WORKDAYS.includes(d))return true;
+  const [y,m,dd]=d.split("-").map(Number);const w=new Date(y,m-1,dd).getDay();
+  if(w===0||w===6)return false;
+  return !ispHoliday().set.has(d);
+}
+// 從 base 隔天開始數第 n 個工作日
+function ispAddWorkdays(base,n){let d=base,c=0,g=0;while(c<n&&g<2000){d=ispAddDays(d,1);g++;if(ispIsWorkday(d))c++;}return d;}
+// a 之後到 b 為止有幾個工作日
+function ispWorkdaysBetween(a,b){let c=0,d=a,g=0;while(d<b&&g<5000){d=ispAddDays(d,1);g++;if(ispIsWorkday(d))c++;}return c;}
+function ispIsTracked(c){return c&&c.status==="開案中"&&ISP_LEVELS.includes(c.changeLevel);}
+function ispStartList(c){return (c.ispStarts||[]).filter(s=>ispIsDate(s.date)).slice().sort((a,b)=>a.date.localeCompare(b.date));}
+function ispIsChecked(c,start){return (c.ispChecks||[]).some(x=>x.start===start);}
+// 首次 ISP 的起算日：開案時間；之後現在等級有改過，就用最新那次改動的日期
+function ispFirstBase(c,levelHistory){
+  if(!ispIsDate(c.openDate))return null;
+  let base=c.openDate;
+  (levelHistory||[]).forEach(h=>{if(h.caseId===c.id&&h.field==="changeLevel"&&ispIsDate(h.date)&&h.date>base)base=h.date;});
+  return base;
+}
+// 依開始執行日排出各期：每個起點往後每 6 個月一期，遇到下一個起點就停
+function ispPeriods(c,until){
+  const st=ispStartList(c);const out=[];
+  st.forEach((s,i)=>{
+    const next=st[i+1]?st[i+1].date:null;
+    for(let k=0;k<400;k++){
+      const start=ispAddMonths(s.date,ISP_PERIOD_MONTHS*k);
+      if(next&&start>=next)break;
+      if(start>until)break;
+      let end=ispAddDays(ispAddMonths(s.date,ISP_PERIOD_MONTHS*(k+1)),-1);
+      if(next&&end>=next)end=ispAddDays(next,-1);
+      out.push({anchor:s,k,start,end});
+    }
+  });
+  return out;
+}
+// 一個個案目前的 ISP 狀態
+//  first：還沒有任何開始執行日時的首次 ISP 期限
+//  needStart：首次 ISP 期限已過、系統裡還沒有開始執行日
+//  items：要擬好的下一期 ISP，每期的期限是前一期最後一天
+//  levelChange：最新起點之後現在等級又改過，還沒處理
+function ispStatus(c,levelHistory,today=toDay()){
+  const r={noOpen:false,first:null,needStart:false,items:[],owed:[],current:null,levelChange:null};
+  const st=ispStartList(c);
+  if(st.length===0){
+    const base=ispFirstBase(c,levelHistory);
+    if(!base){r.noOpen=true;return r;}
+    const due=ispAddWorkdays(base,ISP_FIRST_WORKDAYS);
+    r.first={base,due,fromLevel:base!==c.openDate};
+    r.needStart=due<today;
+    return r;
+  }
+  const periods=ispPeriods(c,ispAddDays(today,ISP_REMIND_DAYS+1));
+  r.current=periods.filter(p=>p.start<=today).slice(-1)[0]||null;
+  const todo=periods.filter(p=>p.k>0&&!ispIsChecked(c,p.start)).map(p=>({...p,due:ispAddDays(p.start,-1)}));
+  r.owed=todo.filter(p=>p.due<today);
+  r.items=todo.filter(p=>ispDaysLeft(p.due,today)<=ISP_REMIND_DAYS);
+  const last=st[st.length-1];const ack=c.ispLevelAck||[];const acked=id=>ack.some(a=>a===id||(a&&a.id===id));
+  const ch=(levelHistory||[]).filter(h=>h.caseId===c.id&&h.field==="changeLevel"&&ispIsDate(h.date)&&h.date>last.date&&!acked(h.id)).sort((a,b)=>a.date.localeCompare(b.date));
+  if(ch.length)r.levelChange=ch[ch.length-1];
+  return r;
+}
+
+// 小工具：一般函式產生畫面，不在元件裡再定義元件，避免重新渲染時輸入框被重置
+const ispChip=(show,text,color,bg)=>show?<span style={{padding:"2px 10px",borderRadius:20,fontSize:12,fontWeight:600,background:bg,color}}>{text}</span>:null;
+const ispLevelTag=lv=><span style={{fontSize:11,padding:"1px 8px",borderRadius:20,background:C.cardAlt,border:`1px solid ${C.border}`,color:C.muted}}>{lv}級</span>;
+const ispLinkBtn=(label,onClick,color=C.primary)=><button onClick={onClick} style={{flexShrink:0,padding:"3px 12px",borderRadius:20,border:`1px solid ${color}`,background:"transparent",color,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,whiteSpace:"nowrap"}}>{label}</button>;
+
+// 側欄「ISP 提醒」這一頁
+function IspPage({data,setData,onSave}){
+  const [tab,setTab]=useState("todo");
+  const tabBtn=(id,label)=><button onClick={()=>setTab(id)} style={{padding:"6px 16px",borderRadius:20,border:`1px solid ${tab===id?C.primary:C.border}`,background:tab===id?C.primary:"transparent",color:tab===id?"#fff":C.text,cursor:"pointer",fontSize:13,fontFamily:font,fontWeight:600}}>{label}</button>;
+  return(
+    <div>
+      <H1>ISP 提醒</H1>
+      <div style={{display:"flex",gap:8,marginBottom:14,marginTop:-8}}>{tabBtn("todo","待處理")}{tabBtn("all","個案總覽")}</div>
+      {tab==="todo"
+        ?<IspReminderCard data={data} setData={setData} onSave={onSave} standalone/>
+        :<IspOverview data={data} setData={setData} onSave={onSave}/>}
+    </div>
+  );
+}
+
+// ISP 提醒頁裡就地編輯一個個案的開始執行日，不用跑到個案管理
+// 先在畫面上改，按儲存才寫入；勾選的期別是用該期開始日對應，改了開始執行日要重新勾
+function IspInlineEditor({c,saving,onSave,onClose}){
+  const [rows,setRows]=useState(()=>(c.ispStarts||[]).map(s=>({...s})));
+  const set=(i,k,v)=>setRows(r=>r.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const today=toDay();
+  const save=()=>{
+    if(rows.some(r=>!ispIsDate(r.date))){alert("開始執行日有空白或格式不對");return;}
+    const old=(c.ispStarts||[]).map(x=>x.date).sort().join(",");
+    const now=rows.map(x=>x.date).sort().join(",");
+    if(old!==now&&(c.ispChecks||[]).length&&!confirm("開始執行日改了之後，原本勾過的期別可能會對不上，要重新確認勾選。確定儲存？"))return;
+    onSave({ispStarts:rows.slice().sort((a,b)=>a.date.localeCompare(b.date))},`已更新 ${c.name} 的 ISP 開始執行日`);
+  };
+  return(
+    <div style={{marginTop:8,padding:"10px 12px",borderRadius:10,background:C.cardAlt,border:`1px solid ${C.border}`}}>
+      <div style={{fontSize:12,color:C.muted,marginBottom:8}}>ISP 開始執行日：首次、轉級、轉案時各一筆，轉案填前手目前這一期的開始日</div>
+      {rows.length===0&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>還沒有填</div>}
+      {rows.map((r,i)=>(
+        <div key={i} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+          <input type="date" value={r.date||""} onChange={e=>set(i,"date",e.target.value)} style={inp({width:160,padding:"5px 8px",fontSize:13})}/>
+          <select value={r.kind||"首次"} onChange={e=>set(i,"kind",e.target.value)} style={inp({width:"auto",padding:"5px 8px",fontSize:13})}>
+            {ISP_START_KINDS.map(k=><option key={k} value={k}>{k}</option>)}
+          </select>
+          <input value={r.note||""} onChange={e=>set(i,"note",e.target.value)} placeholder="備註" style={inp({flex:1,minWidth:120,padding:"5px 8px",fontSize:13})}/>
+          <button onClick={()=>setRows(x=>x.filter((_,j)=>j!==i))} style={{border:"none",background:"none",color:C.danger,cursor:"pointer",fontSize:12,fontFamily:font}}>刪除</button>
+        </div>
+      ))}
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>setRows(x=>[...x,{date:today,kind:x.length?"轉級":"首次",note:"",createdAt:today}])} style={{padding:"4px 12px",borderRadius:20,border:`1px dashed ${C.primary}`,background:"transparent",color:C.primary,cursor:"pointer",fontSize:12,fontFamily:font}}>＋ 新增開始執行日</button>
+        <span style={{flex:1}}/>
+        <Btn style={{padding:"5px 14px",fontSize:12}} disabled={saving} onClick={save}>儲存</Btn>
+        <Btn variant="secondary" style={{padding:"5px 14px",fontSize:12}} onClick={onClose}>取消</Btn>
+      </div>
+    </div>
+  );
+}
+
+// 「個案總覽」分頁：每個個案一列，各期用小標籤顯示完成了沒，點標籤可以勾選或取消
+// 上方另外列出今天做過的勾選、填開始執行日、接續原週期，點錯可以直接取消
+function IspOverview({data,setData,onSave}){
+  const [q,setQ]=useState("");
+  const [editId,setEditId]=useState(null);
+  const [undo,setUndo]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const today=toDay();
+  const lh=data.levelHistory||[];
+  const tracked=(data.cases||[]).filter(ispIsTracked).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"zh-TW"));
+  const kw=q.trim();
+  const shown=kw?tracked.filter(c=>String(c.name||"").includes(kw)||String(c.caseNo||"").includes(kw)):tracked;
+
+  const saveCase=async(c,patch,msg)=>{
+    if(saving)return;
+    setSaving(true);
+    const updated={...c,...patch,lastModified:today};
+    setData(d=>({...d,cases:d.cases.map(x=>x.id===c.id?updated:x)}));
+    await onSave("cases",updated);
+    setUndo({caseId:c.id,msg,prev:{ispStarts:c.ispStarts,ispChecks:c.ispChecks,ispLevelAck:c.ispLevelAck}});
+    setSaving(false);
+  };
+  const doUndo=async()=>{
+    const c=(data.cases||[]).find(x=>x.id===undo.caseId);
+    if(!c){setUndo(null);return;}
+    const restored={...c,lastModified:today};
+    Object.keys(undo.prev).forEach(k=>{if(undo.prev[k]===undefined)delete restored[k];else restored[k]=undo.prev[k];});
+    setData(d=>({...d,cases:d.cases.map(x=>x.id===c.id?restored:x)}));
+    await onSave("cases",restored);
+    setUndo(null);
+  };
+  const toggle=(c,p,on)=>{
+    const rest=(c.ispChecks||[]).filter(x=>x.start!==p.start);
+    if(on){
+      if(!confirm(`確定 ${c.name} ${fmtDate(p.start)} 起那期的 ISP 已經擬好？`))return;
+      saveCase(c,{ispChecks:[...rest,{start:p.start,checkedAt:today}]},`已勾選 ${c.name} ${fmtDate(p.start)} 起那期的 ISP`);
+    }else{
+      if(!confirm(`取消 ${c.name} ${fmtDate(p.start)} 起那期的勾選？`))return;
+      saveCase(c,{ispChecks:rest},`已取消 ${c.name} ${fmtDate(p.start)} 起那期的勾選`);
+    }
+  };
+
+  // 今天做過的操作；從 Excel 匯入的勾選不算
+  const todays=[];
+  (data.cases||[]).forEach(c=>{
+    (c.ispChecks||[]).forEach(x=>{if(x.checkedAt===today&&x.from!=="Excel")todays.push({c,type:"check",x,text:`勾選 ${fmtDate(x.start)} 起那期的 ISP`});});
+    (c.ispStarts||[]).forEach(x=>{if(x.createdAt===today)todays.push({c,type:"start",x,text:`記錄${x.kind} ISP，${fmtDate(x.date)} 開始執行`});});
+    (c.ispLevelAck||[]).forEach(x=>{if(x&&x.at===today)todays.push({c,type:"ack",x,text:"這次轉級接續原週期"});});
+  });
+  const cancelToday=t=>{
+    const c=t.c;
+    if(!confirm(`取消「${c.name} ${t.text}」？`))return;
+    if(t.type==="check")saveCase(c,{ispChecks:(c.ispChecks||[]).filter(x=>x!==t.x)},`已取消 ${c.name} ${t.text}`);
+    if(t.type==="start")saveCase(c,{ispStarts:(c.ispStarts||[]).filter(x=>x!==t.x)},`已取消 ${c.name} ${t.text}`);
+    if(t.type==="ack")saveCase(c,{ispLevelAck:(c.ispLevelAck||[]).filter(x=>x!==t.x)},`已取消 ${c.name} ${t.text}`);
+  };
+
+  const chipBase={padding:"3px 10px",borderRadius:20,fontSize:12,fontFamily:font,fontWeight:600,whiteSpace:"nowrap"};
+  const chips=c=>{
+    // 還沒有開始執行日的個案，上面那行摘要已經寫了首次 ISP 期限，這裡只提示去哪裡填
+    if(!ispStartList(c).length)return<div style={{fontSize:12,color:C.muted}}>還沒有期別，可以在「待處理」或個案編輯填開始執行日</div>;
+    const periods=ispPeriods(c,ispAddDays(today,ISP_REMIND_DAYS+1));
+    return(
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {periods.map(p=>{
+          if(p.k===0)return<span key={p.start} title={`${fmtDate(p.start)} 到 ${fmtDate(p.end)}`} style={{...chipBase,background:"#E8F0FB",color:"#3A5FAA"}}>{fmtDate(p.start)} {p.anchor.kind||"首次"}</span>;
+          const chk=(c.ispChecks||[]).find(x=>x.start===p.start);
+          const due=ispAddDays(p.start,-1);
+          const late=!chk&&due<today;
+          const style=chk?{background:"#E8F5EE",color:"#2A7A4A",border:"1px solid #BFE0CC"}:late?{background:"#FFF0F0",color:C.danger,border:"1px solid #ECC8C8"}:{background:"#FFF4E8",color:C.accent,border:"1px solid #F3DDC6"};
+          const tip=chk?(chk.from==="Excel"?"從 Excel 匯入":`${fmtDate(chk.checkedAt)} 勾選`):`要在 ${fmtDate(due)} 前擬好`;
+          return<button key={p.start} title={tip} disabled={saving} onClick={()=>toggle(c,p,!chk)} style={{...chipBase,...style,cursor:saving?"wait":"pointer"}}>{chk?"✓ ":late?"✗ ":""}{fmtDate(p.start)}{chk?"":late?" 欠":" 待擬"}</button>;
+        })}
+      </div>
+    );
+  };
+
+  return(
+    <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,padding:"14px 20px"}}>
+      {undo&&(
+        <div style={{marginBottom:10,padding:"8px 12px",borderRadius:8,background:"#EEF7F3",fontSize:12,color:C.primary,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span>{undo.msg}</span>
+          <button onClick={doUndo} style={{border:"none",background:"none",color:C.primary,textDecoration:"underline",cursor:"pointer",fontSize:12,fontFamily:font,padding:0}}>復原</button>
+          <button onClick={()=>setUndo(null)} style={{marginLeft:"auto",border:"none",background:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:0}}>✕</button>
+        </div>
+      )}
+      <div style={{marginBottom:14,padding:"10px 12px",borderRadius:10,background:C.cardAlt,border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>今天做過的 {todays.length} 筆</div>
+        {todays.length===0&&<div style={{fontSize:12,color:C.muted}}>今天還沒有勾選或填開始執行日</div>}
+        {todays.map((t,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"4px 0",fontSize:13}}>
+            <span style={{fontWeight:600}}>{t.c.name}</span>
+            <span style={{flex:1,minWidth:0,color:C.text}}>{t.text}</span>
+            <button onClick={()=>cancelToday(t)} disabled={saving} style={{border:"none",background:"none",color:C.danger,cursor:"pointer",fontSize:12,fontFamily:font,flexShrink:0}}>取消</button>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="搜尋姓名或案號" style={inp({maxWidth:240,padding:"6px 10px",fontSize:13})}/>
+        <span style={{fontSize:11,color:C.muted}}>綠色打勾是已擬好、紅色是逾期沒勾、橘色是 {ISP_REMIND_DAYS} 天內要擬；藍色是 ISP 起點，不用勾。點標籤可以勾選或取消</span>
+      </div>
+      {shown.length===0&&<div style={{fontSize:12,color:C.muted,padding:"8px 0"}}>沒有符合的個案</div>}
+      {shown.map(c=>(
+        <div key={c.id} style={{padding:"10px 0",borderTop:`1px solid ${C.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:"4px 10px",flexWrap:"wrap",marginBottom:6}}>
+            <span style={{fontWeight:600,fontSize:14,color:C.text}}>{c.name}</span>
+            {ispLevelTag(c.changeLevel)}
+            <span style={{flex:1,minWidth:0,fontSize:11,color:C.muted}}>{ispSummaryText(c,lh)}</span>
+            {editId!==c.id&&ispLinkBtn("編輯",()=>setEditId(c.id),C.muted)}
+          </div>
+          {chips(c)}
+          {editId===c.id&&<IspInlineEditor c={c} saving={saving} onSave={async(patch,msg)=>{await saveCase(c,patch,msg);setEditId(null);}} onClose={()=>setEditId(null)}/>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IspReminderCard({data,setData,onSave,standalone}){
+  const [editing,setEditing]=useState(null);
+  const [undo,setUndo]=useState(null);
+  const [showNeed,setShowNeed]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [showImport,setShowImport]=useState(false);
+  const today=toDay();
+  const lh=data.levelHistory||[];
+  const openCases=(data.cases||[]).filter(c=>c.status==="開案中");
+  const tracked=openCases.filter(ispIsTracked);
+  const noLevel=openCases.filter(c=>!c.changeLevel).length;
+  const rows=tracked.map(c=>({c,s:ispStatus(c,lh,today)}));
+  const noOpen=rows.filter(r=>r.s.noOpen).length;
+  const need=rows.filter(r=>r.s.needStart).sort((a,b)=>a.s.first.due.localeCompare(b.s.first.due));
+  const active=rows.filter(r=>!r.s.noOpen&&!r.s.needStart&&(r.s.first||r.s.items.length||r.s.levelChange));
+  const firstDue=r=>r.s.first?r.s.first.due:r.s.items.length?r.s.items[0].due:r.s.levelChange.date;
+  active.sort((a,b)=>firstDue(a).localeCompare(firstDue(b)));
+  const owedItems=active.reduce((n,r)=>n+r.s.owed.length+(r.s.first&&r.s.first.due<today?1:0),0);
+  const soonItems=active.reduce((n,r)=>n+r.s.items.filter(x=>x.due>=today).length+(r.s.first&&r.s.first.due>=today&&ispDaysLeft(r.s.first.due,today)<=ISP_REMIND_DAYS?1:0),0);
+  const levelCnt=active.filter(r=>r.s.levelChange).length;
+  const beyond=rows.some(r=>r.s.first&&Number(r.s.first.due.slice(0,4))>ispHoliday().maxYear);
+
+  // 存檔前記下原本的值，讓「復原」可以整個還原
+  const saveCase=async(c,patch,msg)=>{
+    if(saving)return;
+    setSaving(true);
+    const updated={...c,...patch,lastModified:today};
+    setData(d=>({...d,cases:d.cases.map(x=>x.id===c.id?updated:x)}));
+    await onSave("cases",updated);
+    setUndo({caseId:c.id,msg,prev:{ispStarts:c.ispStarts,ispChecks:c.ispChecks,ispLevelAck:c.ispLevelAck}});
+    setEditing(null);setSaving(false);
+  };
+  const addStart=(c,date,kind,ackId)=>{
+    if(!ispIsDate(date)){alert("請選擇開始執行日");return;}
+    const starts=[...(c.ispStarts||[]),{date,kind,note:"",createdAt:today}].sort((a,b)=>a.date.localeCompare(b.date));
+    const patch={ispStarts:starts};
+    if(ackId)patch.ispLevelAck=[...(c.ispLevelAck||[]),{id:ackId,at:today}];
+    saveCase(c,patch,`已記錄 ${c.name} 的${kind} ISP，${fmtDate(date)} 開始執行`);
+  };
+  const check=(c,p)=>saveCase(c,{ispChecks:[...(c.ispChecks||[]).filter(x=>x.start!==p.start),{start:p.start,checkedAt:today}]},`已勾選 ${c.name} ${fmtDate(p.start)} 起那期的 ISP`);
+  const keepCycle=(c,h)=>saveCase(c,{ispLevelAck:[...(c.ispLevelAck||[]),{id:h.id,at:today}]},`${c.name} 這次轉級接續原週期，不另起新期`);
+  const doUndo=async()=>{
+    const c=(data.cases||[]).find(x=>x.id===undo.caseId);
+    if(!c){setUndo(null);return;}
+    const restored={...c,lastModified:today};
+    Object.keys(undo.prev).forEach(k=>{if(undo.prev[k]===undefined)delete restored[k];else restored[k]=undo.prev[k];});
+    setData(d=>({...d,cases:d.cases.map(x=>x.id===c.id?restored:x)}));
+    await onSave("cases",restored);
+    setUndo(null);
+  };
+
+  // 填開始執行日的小表單；kinds 有兩個以上時可以選首次或轉案
+  const startEditor=(c,kinds,ackId)=>(
+    <div style={{marginTop:8,display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+      {kinds.length>1
+        ?<select value={editing.kind} onChange={e=>{const v=e.target.value;setEditing(s=>({...s,kind:v}));}} style={inp({width:"auto",padding:"5px 8px",fontSize:13})}>{kinds.map(k=><option key={k} value={k}>{k}</option>)}</select>
+        :<span style={{fontSize:12,color:C.muted}}>{kinds[0]} ISP</span>}
+      <span style={{fontSize:12,color:C.muted}}>開始執行日</span>
+      <input type="date" value={editing.date} onChange={e=>{const v=e.target.value;setEditing(s=>({...s,date:v}));}} style={inp({width:150,padding:"5px 8px",fontSize:13})}/>
+      <Btn style={{padding:"5px 12px",fontSize:12}} disabled={saving} onClick={()=>addStart(c,editing.date,kinds.length>1?editing.kind:kinds[0],ackId)}>儲存</Btn>
+      <Btn variant="secondary" style={{padding:"5px 12px",fontSize:12}} onClick={()=>setEditing(null)}>取消</Btn>
+      {kinds.includes("轉案")&&<div style={{flexBasis:"100%",fontSize:11,color:C.muted}}>轉案個案請填前手目前這一期的開始執行日</div>}
+    </div>
+  );
+  const lineBox=(late,children,key)=>(
+    <div key={key} style={{padding:"6px 0 6px 12px",borderLeft:`2px solid ${late?"#ECC8C8":"#F3DDC6"}`,marginTop:6}}>{children}</div>
+  );
+  const firstLine=(c,f)=>{
+    const late=f.due<today;
+    const n=late?ispWorkdaysBetween(f.due,today):ispWorkdaysBetween(today,f.due);
+    const key="first|"+c.id;const isEd=editing&&editing.key===key;
+    return lineBox(late,<>
+      <div style={{display:"flex",alignItems:"center",gap:10}}>
+        <span style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:"2px 10px",flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:C.text}}>首次 ISP</span>
+          <span style={{fontSize:12,color:C.muted}}>期限 {fmtDate(f.due)}</span>
+          <span style={{fontSize:12,fontWeight:600,color:late?C.danger:C.accent}}>{late?`逾期 ${n} 個工作日`:n===0?"今天到期":`剩 ${n} 個工作日`}</span>
+          <span style={{fontSize:11,color:C.muted}}>{f.fromLevel?`從 ${fmtDate(f.base)} 重新分級起算`:`從開案 ${fmtDate(f.base)} 起算`}</span>
+        </span>
+        {!isEd&&ispLinkBtn("已完成",()=>setEditing({key,date:today,kind:"首次"}))}
+      </div>
+      {isEd&&startEditor(c,["首次"])}
+    </>,key);
+  };
+  const periodLine=(c,p)=>{
+    const left=ispDaysLeft(p.due,today);const late=left<0;
+    return(
+      <label key={p.start} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0 6px 12px",borderLeft:`2px solid ${late?"#ECC8C8":"#F3DDC6"}`,marginTop:6,cursor:saving?"wait":"pointer"}}>
+        <input type="checkbox" checked={false} disabled={saving} onChange={()=>check(c,p)} style={{width:18,height:18,margin:0,flexShrink:0,accentColor:C.primary,cursor:"inherit"}}/>
+        <span style={{flex:1,minWidth:0,display:"flex",alignItems:"center",gap:"2px 10px",flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:C.text}}>下一期 ISP</span>
+          <span style={{fontSize:12,color:C.muted}}>{fmtDate(p.start)} 起，要在 {fmtDate(p.due)} 前擬好</span>
+          <span style={{fontSize:12,fontWeight:600,color:late?C.danger:C.accent}}>{late?`逾期 ${-left} 天`:left===0?"今天到期":`剩 ${left} 天`}</span>
+        </span>
+      </label>
+    );
+  };
+  const levelLine=(c,h)=>{
+    const key="lv|"+c.id;const isEd=editing&&editing.key===key;
+    return(
+      <div key={key} style={{padding:"6px 0 6px 12px",borderLeft:"2px solid #C9D7E8",marginTop:6}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{flex:1,minWidth:0,fontSize:13,color:C.text}}>現在等級 {fmtDate(h.date)} 從{h.from||"空白"}改成{h.to}，要寫新的 ISP 嗎？</span>
+          {!isEd&&<span style={{display:"flex",gap:6}}>{ispLinkBtn("填新 ISP 開始執行日",()=>setEditing({key,date:h.date,kind:"轉級"}))}{ispLinkBtn("接續原週期",()=>keepCycle(c,h),C.muted)}</span>}
+        </div>
+        {isEd&&startEditor(c,["轉級"],h.id)}
+      </div>
+    );
+  };
+  const caseBlock=({c,s})=>(
+    <div key={c.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+      <div style={{display:"flex",alignItems:"center",gap:"4px 10px",flexWrap:"wrap"}}>
+        <span style={{fontWeight:600,fontSize:14,color:C.text}}>{c.name}</span>
+        {ispLevelTag(c.changeLevel)}
+        {s.owed.length>0&&<span style={{fontSize:12,fontWeight:700,color:C.danger}}>欠 {s.owed.length} 期</span>}
+        {s.current&&<span style={{fontSize:11,color:C.muted}}>本期 {fmtDate(s.current.start)} 到 {fmtDate(s.current.end)}</span>}
+        <span style={{flex:1}}/>
+        {!(editing&&editing.key==="edit|"+c.id)&&ispLinkBtn("編輯",()=>setEditing({key:"edit|"+c.id}),C.muted)}
+      </div>
+      {editing&&editing.key==="edit|"+c.id&&<IspInlineEditor c={c} saving={saving} onSave={(patch,msg)=>saveCase(c,patch,msg)} onClose={()=>setEditing(null)}/>}
+      {s.first&&firstLine(c,s.first)}
+      {s.items.map(p=>periodLine(c,p))}
+      {s.levelChange&&levelLine(c,s.levelChange)}
+    </div>
+  );
+  const needBlock=({c,s})=>{
+    const key="need|"+c.id;const isEd=editing&&editing.key===key;
+    return(
+      <div key={c.id} style={{padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:"4px 10px",flexWrap:"wrap"}}>
+              <span style={{fontWeight:600,fontSize:14,color:C.text}}>{c.name}</span>
+              {ispLevelTag(c.changeLevel)}
+              <span style={{fontSize:12,color:C.danger,fontWeight:600}}>首次 ISP 期限 {fmtDate(s.first.due)} 已過</span>
+            </div>
+            <div style={{fontSize:11,color:C.muted,marginTop:3}}>開案 {fmtDate(c.openDate)}，系統裡還沒有 ISP 開始執行日</div>
+          </div>
+          {!isEd&&ispLinkBtn("填開始執行日",()=>setEditing({key,date:"",kind:"首次"}))}
+        </div>
+        {isEd&&startEditor(c,["首次","轉案"])}
+      </div>
+    );
+  };
+
+  return(
+    <div style={{background:C.card,borderRadius:14,border:`1px solid ${owedItems>0?"#ECC8C8":C.border}`,marginBottom:20,padding:"14px 20px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        {!standalone&&<span style={{fontSize:14,fontWeight:700,color:C.text,fontFamily:serif}}>ISP 提醒</span>}
+        {ispChip(owedItems>0,`逾期 ${owedItems} 份`,C.danger,"#FFF0F0")}
+        {ispChip(soonItems>0,`${ISP_REMIND_DAYS} 天內到期 ${soonItems} 份`,C.accent,"#FFF4E8")}
+        {ispChip(levelCnt>0,`轉級待處理 ${levelCnt} 案`,"#3A5FAA","#E8F0FB")}
+        {ispChip(need.length>0,`還沒填開始執行日 ${need.length} 案`,C.danger,C.cardAlt)}
+        <span style={{fontSize:11,color:C.muted,marginLeft:"auto"}}>一、二級開案中 {tracked.length} 案</span>
+      </div>
+      {undo&&(
+        <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:"#EEF7F3",fontSize:12,color:C.primary,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span>{undo.msg}</span>
+          <button onClick={doUndo} style={{border:"none",background:"none",color:C.primary,textDecoration:"underline",cursor:"pointer",fontSize:12,fontFamily:font,padding:0}}>復原</button>
+          <button onClick={()=>setUndo(null)} style={{marginLeft:"auto",border:"none",background:"none",color:C.muted,cursor:"pointer",fontSize:14,padding:0}}>✕</button>
+        </div>
+      )}
+      {active.length===0&&need.length===0&&(
+        <div style={{fontSize:12,color:C.muted,marginTop:8}}>沒有逾期，{ISP_REMIND_DAYS} 天內也沒有要擬的 ISP</div>
+      )}
+      {active.length>0&&<div style={{marginTop:4}}>{active.map(caseBlock)}</div>}
+      {need.length>0&&(
+        <div style={{marginTop:active.length>0?12:8}}>
+          <div onClick={()=>setShowNeed(v=>!v)} style={{fontSize:12,color:C.muted,cursor:"pointer",userSelect:"none"}}>
+            <div style={{fontWeight:600,display:"flex",alignItems:"center",gap:6,color:C.danger}}><span style={{fontSize:10}}>{showNeed?"▼":"▶"}</span>還沒填開始執行日 {need.length} 案</div>
+            <div style={{marginTop:2,paddingLeft:16}}>首次 ISP 期限已過，系統裡還沒有開始執行日。寫過的請填開始執行日，轉案個案選轉案；還沒寫的，就是首次 ISP 逾期</div>
+          </div>
+          {showNeed&&<div>{need.map(needBlock)}</div>}
+        </div>
+      )}
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:8}}>
+        <div style={{flex:1,minWidth:200}}>
+          {noLevel>0&&<div style={{fontSize:11,color:C.muted}}>另有 {noLevel} 個開案中個案沒有填現在等級，無法判斷要不要寫 ISP</div>}
+          {noOpen>0&&<div style={{fontSize:11,color:C.muted}}>另有 {noOpen} 個一、二級個案沒有開案時間，無法算首次 ISP 期限</div>}
+          {beyond&&<div style={{fontSize:11,color:C.muted}}>有期限落在 {ispHoliday().maxYear+1-1911} 年以後，那一年的假日還沒輸入，工作日只扣週末</div>}
+        </div>
+        <button onClick={()=>setShowImport(true)} style={{border:"none",background:"none",color:C.muted,textDecoration:"underline",cursor:"pointer",fontSize:11,fontFamily:font,padding:0}}>從舊 Excel 匯入</button>
+      </div>
+      {showImport&&<IspImportModal data={data} setData={setData} onSave={onSave} onClose={()=>setShowImport(false)}/>}
+    </div>
+  );
+}
+
+// 個案編輯裡的 ISP 進度：開始執行日可以新增、修改、刪除，每期可以勾選或取消
+function IspEditSection({form,fld}){
+  const [open,setOpen]=useState(false);
+  const starts=form.ispStarts||[];
+  if(!ISP_LEVELS.includes(form.changeLevel)&&starts.length===0)return null;
+  const today=toDay();
+  const setStarts=list=>fld("ispStarts",list.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))));
+  const editStart=(i,k,v)=>fld("ispStarts",starts.map((s,j)=>j===i?{...s,[k]:v}:s));
+  const checks=form.ispChecks||[];
+  const setCheck=(p,on)=>{const rest=checks.filter(x=>x.start!==p.start);fld("ispChecks",on?[...rest,{start:p.start,checkedAt:today}]:rest);};
+  const periods=ispPeriods(form,ispAddDays(today,ISP_REMIND_DAYS+1));
+  return(
+    <div style={{marginBottom:20}}>
+      <div onClick={()=>setOpen(v=>!v)} style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${C.border}`,letterSpacing:"0.04em",cursor:"pointer",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
+        <span style={{fontSize:10}}>{open?"▼":"▶"}</span>ISP 進度<span style={{fontWeight:400,fontSize:11}}>{open?"點擊收起":"點擊展開"}</span>
+      </div>
+      {open&&(
+        <div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:10,lineHeight:1.7}}>每期 6 個月、一期接一期，從開始執行日往下排；下一期 ISP 要在本期最後一天前擬好。首次、轉級、轉案時各填一次開始執行日，轉案填前手目前這一期的開始日。改了開始執行日，原本勾過的期別會對不上，要重新勾。</div>
+          <Label>ISP 開始執行日</Label>
+          {starts.length===0&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>還沒有填</div>}
+          {starts.map((s,i)=>(
+            <div key={i} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+              <input type="date" value={s.date||""} onChange={e=>editStart(i,"date",e.target.value)} style={inp({width:160,padding:"5px 8px",fontSize:13})}/>
+              <select value={s.kind||"首次"} onChange={e=>editStart(i,"kind",e.target.value)} style={inp({width:"auto",padding:"5px 8px",fontSize:13})}>
+                {ISP_START_KINDS.map(k=><option key={k} value={k}>{k}</option>)}
+              </select>
+              <input value={s.note||""} onChange={e=>editStart(i,"note",e.target.value)} placeholder="備註" style={inp({flex:1,minWidth:120,padding:"5px 8px",fontSize:13})}/>
+              <button onClick={()=>{if(confirm("確定刪除這個開始執行日？"))fld("ispStarts",starts.filter((_,j)=>j!==i));}} style={{border:"none",background:"none",color:C.danger,cursor:"pointer",fontSize:12,fontFamily:font}}>刪除</button>
+            </div>
+          ))}
+          <button onClick={()=>setStarts([...starts,{date:today,kind:starts.length?"轉級":"首次",note:""}])} style={{padding:"4px 12px",borderRadius:20,border:`1px dashed ${C.primary}`,background:"transparent",color:C.primary,cursor:"pointer",fontSize:12,fontFamily:font,marginBottom:14}}>＋ 新增開始執行日</button>
+          {periods.length>0&&<Label>各期，下一期 ISP 擬好就打勾</Label>}
+          {periods.map(p=>{
+            if(p.k===0)return(
+              <div key={p.start} style={{fontSize:12,color:C.muted,margin:"0 0 8px 28px"}}>{fmtDate(p.start)} 到 {fmtDate(p.end)}，{p.anchor.kind||"首次"} ISP 這期開始</div>
+            );
+            const on=ispIsChecked(form,p.start);const due=ispAddDays(p.start,-1);const late=!on&&due<today;
+            return(
+              <label key={p.start} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,cursor:"pointer"}}>
+                <input type="checkbox" checked={on} onChange={e=>setCheck(p,e.target.checked)} style={{width:18,height:18,margin:0,flexShrink:0,accentColor:C.primary,cursor:"pointer"}}/>
+                <span style={{fontSize:13,color:C.text}}>{fmtDate(p.start)} 到 {fmtDate(p.end)}</span>
+                <span style={{fontSize:12,color:C.muted}}>要在 {fmtDate(due)} 前擬好</span>
+                {late&&<span style={{fontSize:12,color:C.danger,fontWeight:600}}>未完成</span>}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 個案檢視用的一句話摘要
+function ispSummaryText(c,levelHistory){
+  const s=ispStatus(c,levelHistory);
+  if(s.noOpen)return"沒有開案時間，無法算首次 ISP 期限";
+  if(s.first)return s.needStart?`首次 ISP 期限 ${fmtDate(s.first.due)} 已過，還沒填開始執行日`:`首次 ISP 期限 ${fmtDate(s.first.due)}`;
+  const parts=[];
+  if(s.current)parts.push(`本期 ${fmtDate(s.current.start)} 到 ${fmtDate(s.current.end)}`);
+  parts.push(s.owed.length?`欠 ${s.owed.length} 期，最早要在 ${fmtDate(s.owed[0].due)} 前擬好`:"沒有逾期");
+  if(s.levelChange)parts.push("轉級待處理");
+  return parts.join("，");
+}
+
+// ── 從舊 Excel 匯入 ISP 紀錄 ──────────────────────────────────────
+// 讀「個案清單」和「摘要期別追蹤」兩個工作表；只帶有完成紀錄的個案，用姓名比對，確認後才寫入
+// 個案清單第 4 列起：A 姓名、B 等級、C 摘要起算日、D 階段結束日、L 備註、M 轉案轉級日
+// 摘要期別追蹤：第 i 個階段的第 k 期在第 4+i*8+k 列，G 欄有日期代表完成
+function ispParseOldExcel(wb){
+  const ws=wb.Sheets["個案清單"],wt=wb.Sheets["摘要期別追蹤"];
+  if(!ws||!wt)throw new Error("找不到「個案清單」或「摘要期別追蹤」工作表");
+  const val=(sh,addr)=>{const c=sh[addr];return c?c.v:undefined;};
+  const people={};
+  for(let r=4;r<=33;r++){
+    const name=String(val(ws,"A"+r)??"").trim();
+    const start=parseExcelDate(val(ws,"C"+r));
+    if(!name||!ispIsDate(start))continue;
+    const idx=r-4;
+    const done=[];
+    for(let k=0;k<8;k++){const g=val(wt,"G"+(4+idx*8+k));if(g!==undefined&&g!==null&&String(g).trim()!=="")done.push(k);}
+    const level=String(val(ws,"B"+r)??"").replace("級","").trim();
+    const note=[String(val(ws,"L"+r)??"").trim(),ispIsDate(parseExcelDate(val(ws,"M"+r)))?`轉案轉級日 ${fmtDate(parseExcelDate(val(ws,"M"+r)))}`:""].filter(Boolean).join("，");
+    (people[name]=people[name]||[]).push({row:r,level,start,end:parseExcelDate(val(ws,"D"+r)),note,done});
+  }
+  return Object.entries(people).map(([name,stages])=>{
+    stages.sort((a,b)=>a.start.localeCompare(b.start));
+    const doneCount=stages.reduce((n,s)=>n+s.done.length,0);
+    const ispStarts=stages.map((s,i)=>({date:s.start,kind:i===0?"匯入":"轉級",note:s.note}));
+    const ispChecks=[];
+    stages.forEach((s,i)=>{
+      const next=stages[i+1]?stages[i+1].start:null;
+      s.done.filter(k=>k>0).forEach(k=>{
+        const st=ispAddMonths(s.start,ISP_PERIOD_MONTHS*k);
+        if(!next||st<next)ispChecks.push({start:st,checkedAt:toDay(),from:"Excel"});
+      });
+    });
+    return{name,stages,doneCount,ispStarts,ispChecks};
+  }).sort((a,b)=>a.name.localeCompare(b.name,"zh-TW"));
+}
+
+function IspImportModal({data,setData,onSave,onClose}){
+  const [rows,setRows]=useState(null);
+  const [err,setErr]=useState("");
+  const [pick,setPick]=useState({});
+  const [inc,setInc]=useState({});
+  const [busy,setBusy]=useState(false);
+  const [doneMsg,setDoneMsg]=useState("");
+  const cases=data.cases||[];
+  const matches=name=>cases.filter(c=>String(c.name||"").trim()===name);
+  const handleFile=async e=>{
+    const f=e.target.files&&e.target.files[0];if(!f)return;
+    setErr("");setRows(null);setDoneMsg("");
+    try{
+      const buf=await f.arrayBuffer();
+      const wb=XLSX.read(buf,{type:"array"});
+      const list=ispParseOldExcel(wb);
+      const p={},n={};
+      list.filter(x=>x.doneCount>0).forEach(x=>{
+        const m=matches(x.name);
+        if(m.length===1){p[x.name]=m[0].id;n[x.name]=!(m[0].ispStarts&&m[0].ispStarts.length);}
+        else{p[x.name]="";n[x.name]=false;}
+      });
+      setPick(p);setInc(n);setRows(list);
+    }catch(ex){setErr("讀取失敗："+ex.message);}
+  };
+  const withDone=(rows||[]).filter(x=>x.doneCount>0);
+  const without=(rows||[]).filter(x=>x.doneCount===0);
+  const chosen=withDone.filter(x=>inc[x.name]&&pick[x.name]);
+  const doImport=async()=>{
+    if(!chosen.length)return;
+    if(!confirm(`確定把 ${chosen.length} 位的 ISP 紀錄寫入系統？`))return;
+    setBusy(true);
+    const updatedList=chosen.map(x=>{const c=cases.find(cc=>cc.id===pick[x.name]);return{...c,ispStarts:x.ispStarts,ispChecks:x.ispChecks,lastModified:toDay()};});
+    setData(d=>({...d,cases:d.cases.map(c=>updatedList.find(u=>u.id===c.id)||c)}));
+    for(const u of updatedList)await onSave("cases",u);
+    setBusy(false);
+    setDoneMsg(`已寫入 ${updatedList.length} 位，可以關閉這個視窗`);
+  };
+  const stageText=s=>`${s.level}級 ${fmtDate(s.start)} 起`;
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(26,51,50,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>{if(e.target===e.currentTarget&&!busy)onClose();}}>
+      <div style={{background:C.card,borderRadius:16,width:"min(760px,96vw)",maxHeight:"88vh",overflow:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.3)"}}>
+        <div style={{padding:"20px 24px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div><div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:serif}}>從舊 Excel 匯入 ISP 紀錄</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>只帶進有完成紀錄的個案，用姓名比對，確認後才寫入</div></div>
+          <button onClick={()=>{if(!busy)onClose();}} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:C.muted}}>✕</button>
+        </div>
+        <div style={{padding:"16px 24px 24px"}}>
+          <input type="file" accept=".xlsx,.xlsm" onChange={handleFile} style={{fontSize:13,marginBottom:12}}/>
+          {err&&<div style={{color:C.danger,fontSize:13,marginBottom:12}}>{err}</div>}
+          {doneMsg&&<div style={{background:"#E8F5E9",color:"#2E7D32",borderRadius:8,padding:"10px 14px",fontSize:13,marginBottom:12}}>{doneMsg}</div>}
+          {rows&&(
+            <div>
+              <div style={{fontSize:12,color:C.muted,marginBottom:10}}>Excel 共 {rows.length} 位，有完成紀錄 {withDone.length} 位；勾選要寫入的個案。第一個起算日會記成「匯入」，之後的記成「轉級」；每個起點的第一期不用勾，之後完成的期別會帶進來打勾。</div>
+              {withDone.map(x=>{
+                const m=matches(x.name);const c=cases.find(cc=>cc.id===pick[x.name]);
+                const warn=[];
+                if(m.length===0)warn.push("系統裡找不到這個姓名");
+                if(m.length>1)warn.push(`系統裡有 ${m.length} 位同名，請選一位`);
+                if(c&&c.ispStarts&&c.ispStarts.length)warn.push("這個個案已經有 ISP 資料，勾選會整個取代");
+                if(c&&c.status!=="開案中")warn.push(`案況是${c.status||"空白"}`);
+                const lastLv=x.stages[x.stages.length-1].level;
+                if(c&&c.changeLevel!==lastLv)warn.push(`Excel 最後階段是${lastLv}級，系統現在等級是${c.changeLevel||"空白"}`);
+                return(
+                  <div key={x.name} style={{padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:10,marginBottom:8,background:inc[x.name]?"#F6FBF8":C.card}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <input type="checkbox" checked={!!inc[x.name]} disabled={!pick[x.name]} onChange={e=>{const v=e.target.checked;setInc(s=>({...s,[x.name]:v}));}} style={{width:18,height:18,margin:0,accentColor:C.primary}}/>
+                      <span style={{fontWeight:600,fontSize:14}}>{x.name}</span>
+                      <span style={{fontSize:12,color:C.muted}}>{x.stages.map(stageText).join("、")}</span>
+                      <span style={{fontSize:12,color:C.muted}}>完成 {x.doneCount} 期，帶入勾選 {x.ispChecks.length} 期</span>
+                    </div>
+                    {m.length>1&&(
+                      <select value={pick[x.name]||""} onChange={e=>{const v=e.target.value;setPick(s=>({...s,[x.name]:v}));setInc(s=>({...s,[x.name]:!!v}));}} style={inp({marginTop:8,maxWidth:360,padding:"5px 8px",fontSize:13})}>
+                        <option value="">請選擇</option>
+                        {m.map(cc=><option key={cc.id} value={cc.id}>{cc.name}，案號 {cc.caseNo||"空白"}，開案 {fmtDate(cc.openDate)||"空白"}，{cc.status}</option>)}
+                      </select>
+                    )}
+                    {c&&<div style={{fontSize:11,color:C.muted,marginTop:6}}>系統：開案 {fmtDate(c.openDate)||"空白"}，Excel 第一個起算日 {fmtDate(x.stages[0].start)}{c.openDate===x.stages[0].start?"，兩者相同":"，兩者不同"}</div>}
+                    {warn.map(w=><div key={w} style={{fontSize:12,color:C.danger,marginTop:4}}>{w}</div>)}
+                  </div>
+                );
+              })}
+              {without.length>0&&<div style={{fontSize:12,color:C.muted,margin:"12px 0"}}>沒有完成紀錄、不匯入的 {without.length} 位：{without.map(x=>x.name).join("、")}。這些請到系統裡重新填開始執行日。</div>}
+              <div style={{display:"flex",gap:10,marginTop:12}}>
+                <Btn variant="accent" disabled={busy||!chosen.length} onClick={doImport}>{busy?"寫入中…":`寫入 ${chosen.length} 位`}</Btn>
+                <Btn variant="secondary" disabled={busy} onClick={onClose}>關閉</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({data,setView,setData,onSave}){
   const openCount=data.cases.filter(c=>c.status==="開案中").length;
   const managedCount=data.cases.filter(c=>c.status==="列管中").length;
@@ -1031,6 +1687,8 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="現在等級" field="changeLevel" value={form["changeLevel"]} onChange={fld} opts={["","一","二","三","四","A","B","C"]}/>
           </div>
 
+          <IspEditSection form={form} fld={fld}/>
+
           <SectionTitle>地址與居住</SectionTitle>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:20}}>
             <FormRow label="戶籍地址" field="registeredAddr" value={form["registeredAddr"]} onChange={fld}/>
@@ -1141,6 +1799,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
             <Row label="系統分案等級" val={c.systemLevel}/>
             <Row label="個案起始等級" val={c.initialLevel}/>
             <Row label="現在等級" val={c.changeLevel}/>
+            {ispIsTracked(c)&&<Row label="ISP 進度" val={ispSummaryText(c,levelHistory)}/>}
             <Row label="主責社工" val={c.mainWorker}/>
           </div>
           {c.note&&(
@@ -2133,6 +2792,22 @@ const EVT_COLORS={節日:"#C04040",訪視:C.primary,會議:"#5B8DB8",督導:"#8B
 
 // ── 台灣國定假日 2025–2026 ────────────────────────────────────
 const TAIWAN_HOLIDAYS=[
+  // ── 113年（2024）依據人事行政總處辦公日曆表；勞動節依中心放假 ──
+  {date:"2024-01-01",title:"元旦"},
+  {date:"2024-02-08",title:"農曆除夕前一日"},
+  {date:"2024-02-09",title:"農曆除夕"},
+  {date:"2024-02-10",title:"春節"},
+  {date:"2024-02-11",title:"春節"},
+  {date:"2024-02-12",title:"春節"},
+  {date:"2024-02-13",title:"春節補假"},
+  {date:"2024-02-14",title:"春節補假"},
+  {date:"2024-02-28",title:"和平紀念日"},
+  {date:"2024-04-04",title:"兒童節／清明節"},
+  {date:"2024-04-05",title:"兒童節補假"},
+  {date:"2024-05-01",title:"勞動節"},
+  {date:"2024-06-10",title:"端午節"},
+  {date:"2024-09-17",title:"中秋節"},
+  {date:"2024-10-10",title:"國慶日"},
   // ── 114年（2025）依據人事行政總處辦公日曆表修正版 ──
   {date:"2025-01-01",title:"元旦"},
   {date:"2025-01-27",title:"農曆除夕前一日"},
@@ -2176,6 +2851,31 @@ const TAIWAN_HOLIDAYS=[
   {date:"2026-10-25",title:"臺灣光復節"},
   {date:"2026-10-26",title:"臺灣光復節補假"},
   {date:"2026-12-25",title:"行憲紀念日"},
+  // ── 116年（2027）依據人事行政總處辦公日曆表 ──
+  {date:"2027-01-01",title:"元旦"},
+  {date:"2027-02-04",title:"農曆除夕前一日"},
+  {date:"2027-02-05",title:"農曆除夕"},
+  {date:"2027-02-06",title:"春節"},
+  {date:"2027-02-07",title:"春節"},
+  {date:"2027-02-08",title:"春節"},
+  {date:"2027-02-09",title:"春節補假"},
+  {date:"2027-02-10",title:"春節補假"},
+  {date:"2027-02-28",title:"和平紀念日"},
+  {date:"2027-03-01",title:"和平紀念日補假"},
+  {date:"2027-04-04",title:"兒童節"},
+  {date:"2027-04-05",title:"清明節"},
+  {date:"2027-04-06",title:"兒童節補假"},
+  {date:"2027-04-30",title:"勞動節補假"},
+  {date:"2027-05-01",title:"勞動節"},
+  {date:"2027-06-09",title:"端午節"},
+  {date:"2027-09-15",title:"中秋節"},
+  {date:"2027-09-28",title:"孔子誕辰紀念日／教師節"},
+  {date:"2027-10-10",title:"國慶日"},
+  {date:"2027-10-11",title:"國慶日補假"},
+  {date:"2027-10-25",title:"臺灣光復節"},
+  {date:"2027-12-24",title:"行憲紀念日補假"},
+  {date:"2027-12-25",title:"行憲紀念日"},
+  {date:"2027-12-31",title:"元旦補假"},
 ];
 
 function TimePicker({value,onChange,placeholder="選擇時間"}){
@@ -4373,6 +5073,8 @@ function UserSettings({userName,onSave,onClose}){
 // ── SIDEBAR ─────────────────────────────────────────────────────
 function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettings}){
   const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"consult",label:"諮詢紀錄",icon:"☎"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"},{id:"monthly",label:"月報表",icon:"📊"}];
+  // ISP 提醒獨立一頁，放在個案管理後面
+  items.splice(items.findIndex(x=>x.id==="cases")+1,0,{id:"isp",label:"ISP 提醒",icon:"◎"});
   return(
     <div className="sidebar" style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0,height:"100vh"}}>
       <div className="brand" style={{padding:"28px 20px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
@@ -4971,6 +5673,7 @@ function App(){
         {view==="dashboard"&&<Dashboard data={data} setView={setView} setData={setData} onSave={onSave}/>}
         {view==="calendar"  &&<CalendarView data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="cases"    &&<CaseList  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
+        {view==="isp"      &&<IspPage data={data} setData={setData} onSave={onSave}/>}
         {view==="consult"  &&<ConsultPage data={data} setData={setData} onSave={onSave} onDelete={onDelete} userName={userName}/>}
         {view==="resources"&&<ResourceList data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="diary"    &&<DiaryLog  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
