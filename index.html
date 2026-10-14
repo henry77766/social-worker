@@ -1562,6 +1562,11 @@ function DisabilityFields({form, fld}){
       }} style={inp()}>
         {DISABILITY_TYPES.map(o=><option key={o} value={o}>{o}</option>)}
       </select>
+      {form.disabilityType&&!DISABILITY_TYPES.includes(form.disabilityType)&&(
+        <div style={{marginTop:6,padding:"6px 10px",borderRadius:8,background:"#FFF6EC",border:`1px solid ${C.accent}`,fontSize:12,color:C.accent}}>
+          原本填的是「{form.disabilityType}」，不是新制寫法，請改選第1類到第8類或多重障
+        </div>
+      )}
 
       {!isMulti&&subs.length>0&&(
         <div style={{marginTop:8}}>
@@ -2550,6 +2555,10 @@ function CaseList({data,setData,onSave,onDelete}){
           if(groupBy==="ageGroup"){
             const y=calcAgeYears(c.birthDate);
             g = y===null ? "（未填生日）" : (y>=65 ? "65歲以上" : "65歲以下");
+          }else if(groupBy==="disabilityType"){
+            // 不是第1類到第8類、多重障的寫法，全部收進「非新制寫法」一組
+            const t=String(c.disabilityType||"").trim();
+            g=!t?"（未填）":([...DISABILITY_CATS,"多重障"].includes(t)?t:"非新制寫法");
           }else{
             g=c[groupBy]||"（未填）";
           }
@@ -2560,7 +2569,7 @@ function CaseList({data,setData,onSave,onDelete}){
           initialLevel:["一","二","三","四","A","B","C","（未填）"],
           changeLevel:["一","二","三","四","A","B","C","（未填）"],
           disabilityLevel:["極重度","重度","中度","輕度","（未填）"],
-          disabilityType:["第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障","（未填）"],
+          disabilityType:["第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障","非新制寫法","（未填）"],
           livingAlone:["是","否","（未填）"],
           elderlyCouple:["是","否","（未填）"],
           ageGroup:["65歲以上","65歲以下","（未填生日）"],
@@ -2617,11 +2626,14 @@ function CaseList({data,setData,onSave,onDelete}){
                 </div>
                 {isOpen&&(()=>{
                   // 障別分組：展開時列出這一類實際有的細分與人數，點選後只顯示該細分；只有一種細分時不顯示
-                  const subOf=c=>String(c.disabilitySub||"").trim()||"未細分";
+                  // 「非新制寫法」這組改列原本的寫法，依人數多到少，只有一種也顯示
+                  const isNonStd=g==="非新制寫法";
+                  const subOf=isNonStd?(c=>String(c.disabilityType||"").trim()):(c=>String(c.disabilitySub||"").trim()||"未細分");
                   const subCount={};
                   if(groupBy==="disabilityType")groups[g].forEach(c=>{const s=subOf(c);subCount[s]=(subCount[s]||0)+1;});
                   const known=DISABILITY_SUBS[g]||[];
                   const subKeys=Object.keys(subCount).sort((a,b)=>{
+                    if(isNonStd)return (subCount[b]-subCount[a])||a.localeCompare(b,"zh-TW");
                     if((a==="未細分")!==(b==="未細分"))return a==="未細分"?1:-1;
                     const ai=known.indexOf(a),bi=known.indexOf(b);
                     if(ai>=0&&bi>=0)return ai-bi;
@@ -2629,7 +2641,7 @@ function CaseList({data,setData,onSave,onDelete}){
                     if(bi>=0)return 1;
                     return a.localeCompare(b,"zh-TW");
                   });
-                  const showSubs=subKeys.length>=2;
+                  const showSubs=isNonStd?subKeys.length>=1:subKeys.length>=2;
                   const pick=showSubs&&subCount[subPick[gKey]]?subPick[gKey]:null;
                   const list=pick?groups[g].filter(c=>subOf(c)===pick):groups[g];
                   return(
