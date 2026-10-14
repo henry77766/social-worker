@@ -4013,6 +4013,13 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     setEditId(null);
   };
 
+  // 登打紀錄勾選：只切換這個勾選，不改 lastModified
+  const toggleCaseSys=async(r)=>{
+    const updated={...r,caseSysDone:!r.caseSysDone};
+    setData(d=>({...d,caseRecords:(d.caseRecords||[]).map(x=>x.id===r.id?updated:x)}));
+    await onSave("caseRecords",updated);
+  };
+
   // 服務量檢查明細（簡化計算）
   const checkGroups=[];
   const uncategorized={items:[],count:0};
@@ -4832,8 +4839,8 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             {MONTH_NAMES[month-1]}無聯繫紀錄
           </div>
         : <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
-              <span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
+            <div style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"56px 90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
+              <span style={{textAlign:"center",whiteSpace:"nowrap"}}>登打紀錄</span><span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
             </div>
             {(filterMethod||searchQuery?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||(caseNo(r.caseId).includes(searchQuery))):true)):records).map((r,i)=>(
               editId===r.id
@@ -4954,7 +4961,12 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                 </div>
               : <div key={r.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?C.card:C.cardAlt}}>
                   <div onClick={()=>{setViewId(v=>v===r.id?null:r.id);setEditId(null);}}
-                    style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"90px 80px 90px 70px 1fr auto",gap:8,alignItems:"center",fontSize:13,cursor:"pointer"}}>
+                    style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"56px 90px 80px 90px 70px 1fr auto",gap:8,alignItems:"center",fontSize:13,cursor:"pointer"}}>
+                    <span onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <input type="checkbox" checked={!!r.caseSysDone} onChange={()=>toggleCaseSys(r)}
+                        title={r.caseSysDone?"已登打紀錄":"尚未登打紀錄"}
+                        style={{width:16,height:16,margin:0,cursor:"pointer",accentColor:C.primary}}/>
+                    </span>
                     <span style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
                     <span style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{caseName(r.caseId)}</span>
                     <span style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(r.contactPersons&&r.contactPersons.length>0)?r.contactPersons.map(p=>p.type+(p.name?" "+p.name:"")).join("、"):(r.contactPersonType?r.contactPersonType+(r.contactPerson?" "+r.contactPerson:""):r.contactPerson||"—")}</span>
