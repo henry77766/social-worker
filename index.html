@@ -1995,6 +1995,7 @@ function CaseList({data,setData,onSave,onDelete}){
   const [statusFilter,setStatusFilter]=useState("all");
   const [groupBy,setGroupBy]=useState("none");
   const [openGroups,setOpenGroups]=useState({});
+  const [subPick,setSubPick]=useState({}); // 障別分組展開後選的細分
   const [showCompleteness,setShowCompleteness]=useState(false);
   const [showMore,setShowMore]=useState(false);
   const [selectedIds,setSelectedIds]=useState(new Set());
@@ -2420,6 +2421,7 @@ function CaseList({data,setData,onSave,onDelete}){
           {key:"none",       label:"不分類"},
           {key:"changeLevel",label:"現在等級"},
           {key:"disabilityLevel",label:"障礙等級"},
+          {key:"disabilityType",label:"障別"},
           {key:"livingAlone",label:"獨居"},
           {key:"elderlyCouple",label:"雙老"},
           {key:"ageGroup",label:"65歲以上"},
@@ -2537,6 +2539,7 @@ function CaseList({data,setData,onSave,onDelete}){
           initialLevel:"個案起始等級",
           changeLevel:"現在等級",
           disabilityLevel:"障礙等級",
+          disabilityType:"障別",
           livingAlone:"獨居",
           elderlyCouple:"雙老",
           ageGroup:"年齡",
@@ -2557,6 +2560,7 @@ function CaseList({data,setData,onSave,onDelete}){
           initialLevel:["一","二","三","四","A","B","C","（未填）"],
           changeLevel:["一","二","三","四","A","B","C","（未填）"],
           disabilityLevel:["極重度","重度","中度","輕度","（未填）"],
+          disabilityType:["第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障","（未填）"],
           livingAlone:["是","否","（未填）"],
           elderlyCouple:["是","否","（未填）"],
           ageGroup:["65歲以上","65歲以下","（未填生日）"],
@@ -2611,11 +2615,46 @@ function CaseList({data,setData,onSave,onDelete}){
                     <span style={{fontSize:11,color:C.muted}}>個案</span>
                   </span>
                 </div>
-                {isOpen&&(
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14,padding:"14px 18px 20px",background:C.cardAlt}}>
-                    {groups[g].map(c=><CaseCard key={c.id} c={c}/>)}
-                  </div>
-                )}
+                {isOpen&&(()=>{
+                  // 障別分組：展開時列出這一類實際有的細分與人數，點選後只顯示該細分；只有一種細分時不顯示
+                  const subOf=c=>String(c.disabilitySub||"").trim()||"未細分";
+                  const subCount={};
+                  if(groupBy==="disabilityType")groups[g].forEach(c=>{const s=subOf(c);subCount[s]=(subCount[s]||0)+1;});
+                  const known=DISABILITY_SUBS[g]||[];
+                  const subKeys=Object.keys(subCount).sort((a,b)=>{
+                    if((a==="未細分")!==(b==="未細分"))return a==="未細分"?1:-1;
+                    const ai=known.indexOf(a),bi=known.indexOf(b);
+                    if(ai>=0&&bi>=0)return ai-bi;
+                    if(ai>=0)return -1;
+                    if(bi>=0)return 1;
+                    return a.localeCompare(b,"zh-TW");
+                  });
+                  const showSubs=subKeys.length>=2;
+                  const pick=showSubs&&subCount[subPick[gKey]]?subPick[gKey]:null;
+                  const list=pick?groups[g].filter(c=>subOf(c)===pick):groups[g];
+                  return(
+                    <div style={{background:C.cardAlt}}>
+                      {showSubs&&(
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"14px 18px 0"}}>
+                          {subKeys.map(s=>(
+                            <div key={s} onClick={()=>setSubPick(o=>({...o,[gKey]:o[gKey]===s?null:s}))}
+                              style={{padding:"6px 14px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600,
+                                background:pick===s?C.primary:(s==="未細分"?C.card:"#EEF7F3"),
+                                border:`1px solid ${s==="未細分"&&pick!==s?C.muted:C.primary}`,
+                                color:pick===s?"#fff":(s==="未細分"?C.muted:C.primary),
+                                transition:"all 0.15s"}}>
+                              {s} <span style={{fontWeight:700}}>{subCount[s]}</span>
+                              {pick===s&&<span style={{marginLeft:5,opacity:0.7}}>✕</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14,padding:"14px 18px 20px"}}>
+                        {list.map(c=><CaseCard key={c.id} c={c}/>)}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
               );
             })}
