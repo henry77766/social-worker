@@ -26,8 +26,8 @@ const FIREBASE_CONFIG = {
 </script>
 <!-- ════════════════════════════════════════════════════════════ -->
 
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -3887,6 +3887,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
   const [editId,setEditId]=useState(null);
   const [filterMethod,setFilterMethod]=useState(null);
   const [searchQuery,setSearchQuery]=useState("");
+  const [onlyUnsys,setOnlyUnsys]=useState(false); // 只看還沒登打的紀錄
   const [viewId,setViewId]=useState(null);
   const [showCheck,setShowCheck]=useState(false);
   const [mrMore,setMrMore]=useState(false); // 手機上「更多」按鈕展開
@@ -4545,6 +4546,10 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     .filter(r=>r.date?.startsWith(monthStr))
     .sort((a,b)=>{if(b.date!==a.date)return(b.date||"")>(a.date||"")?1:-1;return(b.createdAt||"")>(a.createdAt||"")?1:(b.createdAt||"")<(a.createdAt||"")?-1:0;});
 
+  // 本月登打紀錄完成度：用無條件捨去，全部勾完才會是 100%
+  const sysDone=records.filter(r=>r.caseSysDone).length;
+  const sysPct=records.length?Math.floor(sysDone/records.length*100):0;
+
   // 個案名稱對照
   const caseName=id=>data.cases.find(c=>c.id===id)?.name||"（未知）";
   const caseNo=id=>data.cases.find(c=>c.id===id)?.caseNo||"";
@@ -4989,10 +4994,29 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             {MONTH_NAMES[month-1]}無聯繫紀錄
           </div>
         : <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
+            <div className="mr-sysbar" style={{padding:"12px 20px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:700,color:C.muted,whiteSpace:"nowrap"}}>本月登打紀錄</span>
+              <div style={{flex:1,minWidth:100,height:8,borderRadius:4,background:"#E8E2DA",overflow:"hidden"}}>
+                <div style={{width:sysPct+"%",height:"100%",borderRadius:4,background:sysDone===records.length?"#2A9D5C":C.primary,transition:"width .2s"}}/>
+              </div>
+              <span style={{fontSize:13,color:C.text,whiteSpace:"nowrap"}}>
+                <strong style={{color:sysDone===records.length?"#2A9D5C":C.primary}}>{sysDone}</strong> / {records.length} 筆・{sysDone===records.length?"已全部登打":sysPct+"%"}
+              </span>
+              {(onlyUnsys||sysDone<records.length)&&(
+                <button className="mr-unsys-btn" onClick={()=>setOnlyUnsys(v=>!v)}
+                  style={{padding:"4px 12px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:font,whiteSpace:"nowrap",
+                    border:`1px solid ${C.accent}`,background:onlyUnsys?C.accent:"#FFF6EC",color:onlyUnsys?"#fff":C.accent}}>
+                  {onlyUnsys?"顯示全部 ✕":`只看未登打 ${records.length-sysDone} 筆`}
+                </button>
+              )}
+            </div>
+            {onlyUnsys&&sysDone===records.length&&(
+              <div style={{padding:"20px",textAlign:"center",fontSize:13,color:"#2A9D5C",borderBottom:`1px solid ${C.border}`}}>本月紀錄都已登打完成</div>
+            )}
             <div className="mr-head" style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"56px 90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
               <span style={{textAlign:"center",whiteSpace:"nowrap"}}>登打紀錄</span><span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
             </div>
-            {(filterMethod||searchQuery?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||(caseNo(r.caseId).includes(searchQuery))):true)):records).map((r,i)=>(
+            {(filterMethod||searchQuery||onlyUnsys?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||(caseNo(r.caseId).includes(searchQuery))):true)&&(onlyUnsys?!r.caseSysDone:true)):records).map((r,i)=>(
               editId===r.id
               ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10,borderLeft:`3px solid ${C.accent}`}}>
                   <div style={{fontSize:12,fontWeight:600,color:C.accent,marginBottom:2}}>編輯紀錄 — {caseName(r.caseId)}</div>
@@ -5145,12 +5169,12 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                 </div>
             ))}
             {(()=>{
-              const shown=(filterMethod||searchQuery)?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||caseNo(r.caseId).includes(searchQuery)):true)):records;
+              const shown=(filterMethod||searchQuery||onlyUnsys)?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||caseNo(r.caseId).includes(searchQuery)):true)&&(onlyUnsys?!r.caseSysDone:true)):records;
               const shownCount=shown.reduce((s,r)=>s+parseInt(r.serviceCount||1),0);
               const shownCases=new Set(shown.map(r=>r.caseId)).size;
               return(
                 <div style={{padding:"12px 20px",background:C.cardAlt,borderTop:`2px solid ${C.border}`,fontSize:12,color:C.muted,display:"flex",gap:20,flexWrap:"wrap"}}>
-                  <span>合計 <strong style={{color:C.text}}>{shown.length}</strong> 筆紀錄{filterMethod?" (篩選中)":""}</span>
+                  <span>合計 <strong style={{color:C.text}}>{shown.length}</strong> 筆紀錄{filterMethod||onlyUnsys?" (篩選中)":""}</span>
                   <span>服務人次 <strong style={{color:C.accent}}>{shownCount}</strong> 次</span>
                   <span>涉及個案 <strong style={{color:"#4A6E8A"}}>{shownCases}</strong> 人</span>
                 </div>
