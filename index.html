@@ -39,7 +39,10 @@ const FIREBASE_CONFIG = {
     #root .sidebar .brand{display:none!important}
     #root .sidebar nav{display:flex!important;flex-direction:row!important;gap:4px!important;padding:0!important;flex:1;overflow-x:auto}
     #root .sidebar nav button{padding:8px 10px!important;font-size:12px!important;white-space:nowrap;border-left:none!important}
-    #root .sidebar .bottom-bar{display:none!important}
+    #root .sidebar .bottom-bar{display:flex!important;align-items:center;flex-shrink:0;border-top:none!important;border-left:1px solid rgba(255,255,255,0.12);margin-left:4px;padding-left:2px}
+    #root .sidebar .bottom-bar > *{width:auto!important;padding:8px 6px!important;white-space:nowrap}
+    #root .sidebar .bottom-bar .sb-date,#root .sidebar .bottom-bar .sb-label{display:none!important}
+    #root .qr-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
     #root .main-content{padding:20px 16px!important}
     #root .grid-2col{grid-template-columns:1fr!important}
     #root .stat-row{flex-wrap:wrap}
@@ -458,8 +461,8 @@ function SyncBadge({status}){
   const s=map[status]||map.local;
   return(
     <div style={{display:"flex",alignItems:"center",fontSize:11,color:"rgba(255,255,255,0.4)",padding:"6px 16px"}}>
-      <span className={`sync-dot${s.pulse?" pulse":""}`} style={{background:s.color}}/>
-      {s.label}
+      <span className={`sync-dot${s.pulse?" pulse":""}`} style={{background:s.color}} title={s.label}/>
+      <span className="sb-label">{s.label}</span>
     </div>
   );
 }
@@ -688,8 +691,8 @@ function QuickRecordPanel({data,setData,onSave,setView}){
             })()}
             {form.caseId&&(()=>{const c=openCases.find(x=>x.id===form.caseId);return c?<div style={{fontSize:11,color:C.primary,marginTop:4,fontWeight:500}}>✓ {c.name} {c.caseNo?`(${c.caseNo})`:""}</div>:null;})()}
           </div>
-          {/* 日期 + 聯繫方式 + 次數 同一行 */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 64px 64px",gap:8}}>
+          {/* 日期 + 聯繫方式 + 次數 同一行；手機上改成兩行，見 qr-row */}
+          <div className="qr-row" style={{display:"grid",gridTemplateColumns:"1fr 1fr 64px 64px",gap:8}}>
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>日期</label>
               <input type="date" value={form.date} onChange={e=>fld("date",e.target.value)} style={inp({fontSize:13})}/>
@@ -1743,6 +1746,23 @@ function CaseEditModal({caseData, onSave, onClose}){
 }
 
 // ── CASE VIEW MODAL ──────────────────────────────────────────────
+// 地址點了開 Google 地圖；電話點了直接撥打，一格裡有多支號碼會各自成為連結
+function MapLink({addr}){
+  return <a href={"https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(addr)} target="_blank" rel="noopener noreferrer" style={{color:C.primary,textDecoration:"underline",textUnderlineOffset:3}}>{addr}</a>;
+}
+function PhoneLinks({text}){
+  const s=String(text||"");
+  const re=/\(?\+?\d[\d\-()]{6,}\d/g;
+  const out=[];let last=0,m;
+  while((m=re.exec(s))){
+    if(m.index>last)out.push(s.slice(last,m.index));
+    out.push(<a key={m.index} href={"tel:"+m[0].replace(/[^\d+]/g,"")} style={{color:C.primary,textDecoration:"underline",textUnderlineOffset:3}}>{m[0]}</a>);
+    last=m.index+m[0].length;
+  }
+  if(last<s.length)out.push(s.slice(last));
+  return <>{out}</>;
+}
+
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete, onEdit, onClose}){
   const [showAddHist,setShowAddHist]=useState(false);
   const [histForm,setHistForm]=useState({date:toDay(),field:"changeLevel",from:"",to:"",note:""});
@@ -1785,12 +1805,20 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
             <Row label="新制障別" val={c.disabilityType==="多重障"?`多重障（${c.disabilityDetail||"未填"}）`:(c.disabilitySub?`${c.disabilityType}－${c.disabilitySub}`:c.disabilityType)}/>
           </div>
           <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>地址與居住</div>
-            <Row label="戶籍地" val={c.registeredAddr}/>
-            <Row label="居住地" val={c.addr}/>
+            <Row label="戶籍地" val={c.registeredAddr&&<MapLink addr={c.registeredAddr}/>}/>
+            <Row label="居住地" val={c.addr&&<MapLink addr={c.addr}/>}/>
             <Row label="居住狀況" val={c.livingStatus}/>
             <Row label="獨居" val={c.livingAlone}/>
             <Row label="雙老" val={c.elderlyCouple}/>
           </div>
+          {(c.phone||c.phone2||c.emergencyContact||c.emergencyPhone)&&(
+            <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>聯繫資訊</div>
+              <Row label="本人電話" val={c.phone&&<PhoneLinks text={c.phone}/>}/>
+              <Row label="備用電話" val={c.phone2&&<PhoneLinks text={c.phone2}/>}/>
+              <Row label="緊急聯絡人" val={c.emergencyContact&&(c.emergencyContact+(c.emergencyRelation?"・"+c.emergencyRelation:""))}/>
+              <Row label="緊急聯絡電話" val={c.emergencyPhone&&<PhoneLinks text={c.emergencyPhone}/>}/>
+            </div>
+          )}
           <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>進案資訊</div>
             <Row label="來源" val={c.source}/>
             <Row label="轉介單位" val={c.referralUnit}/>
@@ -5148,9 +5176,9 @@ function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettin
       <div className="bottom-bar" style={{borderTop:"1px solid rgba(255,255,255,0.07)"}}>
         <SyncBadge status={syncStatus}/>
         {!isFirebaseConfigured()&&<button onClick={onSetup} style={{width:"100%",padding:"8px 16px",background:"rgba(201,123,58,0.2)",border:"none",color:C.accent,fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⚙️ 設定雲端同步</button>}
-        <button onClick={onUserSettings} style={{width:"100%",padding:"8px 16px",background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⚙ 用戶設定</button>
+        <button onClick={onUserSettings} style={{width:"100%",padding:"8px 16px",background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⚙ <span className="sb-label">用戶</span>設定</button>
         {onLogout&&<button onClick={onLogout} style={{width:"100%",padding:"8px 16px",background:"transparent",border:"none",color:"rgba(255,255,255,0.35)",fontSize:12,cursor:"pointer",fontFamily:font,textAlign:"left"}}>⎋ 登出</button>}
-        <div style={{padding:"10px 16px",fontSize:10,color:"rgba(255,255,255,0.2)",textAlign:"center"}}>{new Date().toLocaleDateString("zh-TW",{month:"long",day:"numeric"})}</div>
+        <div className="sb-date" style={{padding:"10px 16px",fontSize:10,color:"rgba(255,255,255,0.2)",textAlign:"center"}}>{new Date().toLocaleDateString("zh-TW",{month:"long",day:"numeric"})}</div>
       </div>
     </div>
   );
