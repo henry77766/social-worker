@@ -48,7 +48,33 @@ const FIREBASE_CONFIG = {
     #root .sidebar .bottom-bar .sb-date,#root .sidebar .bottom-bar .sb-label{display:none!important}
     #root .qr-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
     #root .main-content{padding:20px 16px!important}
-    #root .grid-2col{grid-template-columns:1fr!important}
+    #root .grid-2col{grid-template-columns:minmax(0,1fr)!important}
+    /* 月報表：工具列可換行；紀錄列表改成小卡片，第一行勾選、日期、方式、編輯，下面是個案、聯繫對象、內容 */
+    #root .mr-toolbar{flex-wrap:wrap}
+    #root .mr-toolbar button{white-space:nowrap}
+    #root .mr-head{display:none!important}
+    #root .mr-row{grid-template-columns:28px minmax(0,1fr) auto auto!important;grid-template-areas:"chk date method edit" ". case case case" ". who who who" ". content content content";row-gap:4px!important;padding:12px 14px!important}
+    #root .mr-chk{grid-area:chk}
+    #root .mr-date{grid-area:date}
+    #root .mr-method{grid-area:method}
+    #root .mr-edit{grid-area:edit}
+    #root .mr-case{grid-area:case}
+    #root .mr-who{grid-area:who}
+    #root .mr-content{grid-area:content}
+    #root .mr-ed-full{grid-column:1/-1}
+    /* 個案的聯繫紀錄視窗：表格改成每筆一張小卡片，第一行日期、方式、次數、按鈕，下面是聯繫對象和資源單位 */
+    #root .cr-table thead{display:none}
+    #root .cr-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"date method count act" "who who who who" "unit unit unit unit";gap:4px 8px;align-items:center;padding:10px 14px}
+    #root .cr-table tbody td{display:block;padding:0!important}
+    #root .cr-table tbody td:nth-child(1){grid-area:date}
+    #root .cr-table tbody td:nth-child(2){grid-area:who}
+    #root .cr-table tbody td:nth-child(3){grid-area:unit}
+    #root .cr-table tbody td:nth-child(4){grid-area:method}
+    #root .cr-table tbody td:nth-child(5){grid-area:count}
+    #root .cr-table tbody td:nth-child(6){grid-area:act}
+    #root .cr-table tbody tr:not(.cr-edit) td:nth-child(5)::before{content:"x"}
+    #root .cr-table tbody tr.cr-edit{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"date date" "who who" "unit unit" "method count" "act act"}
+    #root .cr-table tbody td[colspan]{grid-column:1/-1}
     #root .stat-row{flex-wrap:wrap}
   }
   .sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
@@ -3515,7 +3541,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
 
       {/* ── 表格 ── */}
         <div style={{overflowX:"auto"}}>
-          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <table className="cr-table" style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead>
               <tr style={{background:C.cardAlt,borderBottom:`2px solid ${C.border}`}}>
                 {["日期","聯繫對象","資源聯繫單位","聯繫方式","次數","動作"].map(h=>(
@@ -3531,7 +3557,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               )}
               {paged.map((r,i)=>(
                 editId===r.id
-                  ? <tr key={r.id} style={{background:"#F8F5F0",borderBottom:`1px solid ${C.border}`}}>
+                  ? <tr key={r.id} className="cr-edit" style={{background:"#F8F5F0",borderBottom:`1px solid ${C.border}`}}>
               <td style={{padding:"8px 12px"}}><input type="date" value={editRec.date||""} onChange={e=>fldEdit("date",e.target.value)} style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
               <td style={{padding:"8px 12px"}}><input value={editRec.contactPerson||""} onChange={e=>fldEdit("contactPerson",e.target.value)} placeholder="聯繫對象" style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
               <td style={{padding:"8px 12px"}}><input value={editRec.resourceUnit||""} onChange={e=>fldEdit("resourceUnit",e.target.value)} placeholder="資源聯繫單位" style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
@@ -4515,7 +4541,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
       {/* 標題與月份切換 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>月服務報表</h1>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div className="mr-toolbar" style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>‹</button>
           <span style={{fontSize:15,fontWeight:700,color:C.text,minWidth:120,textAlign:"center",fontFamily:serif}}>
             民{rocYear}年 {MONTH_NAMES[month-1]}
@@ -4923,7 +4949,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             {MONTH_NAMES[month-1]}無聯繫紀錄
           </div>
         : <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
-            <div style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"56px 90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
+            <div className="mr-head" style={{padding:"12px 20px",background:C.cardAlt,borderBottom:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"56px 90px 80px 90px 70px 1fr auto",gap:8,fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.04em"}}>
               <span style={{textAlign:"center",whiteSpace:"nowrap"}}>登打紀錄</span><span>日期</span><span>個案</span><span>聯繫對象</span><span>方式／次數</span><span>內容</span><span></span>
             </div>
             {(filterMethod||searchQuery?records.filter(r=>(filterMethod?r.contactMethod===filterMethod:true)&&(searchQuery?(caseName(r.caseId).includes(searchQuery)||(caseNo(r.caseId).includes(searchQuery))):true)):records).map((r,i)=>(
@@ -4931,11 +4957,11 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
               ? <div key={r.id} style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:"#F8F5F0",display:"flex",flexDirection:"column",gap:10,borderLeft:`3px solid ${C.accent}`}}>
                   <div style={{fontSize:12,fontWeight:600,color:C.accent,marginBottom:2}}>編輯紀錄 — {caseName(r.caseId)}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 14px"}}>
-                    <div>
+                    <div className="mr-ed-full">
                       <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>日期</label>
                       <input type="date" value={editRec.date||""} onChange={e=>fldEdit("date",e.target.value)} style={{...inp(),fontSize:13}}/>
                     </div>
-                    <div style={{display:"flex",gap:8}}>
+                    <div className="mr-ed-full" style={{display:"flex",gap:8}}>
                       <div style={{flex:2}}>
                         <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫方式</label>
                         <select value={editRec.contactMethod||"電訪"} onChange={e=>{const v=e.target.value;fldEdit("contactMethod",v);fldEdit("timeRange","");if(v==="家訪"&&!editRec.serviceLocation)fldEdit("serviceLocation","案家");}} style={{...inp(),fontSize:13}}>
@@ -5023,7 +5049,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                       </div>
                     </div>
 
-                    <div>
+                    <div className="mr-ed-full">
                       <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>服務地點</label>
                       <select value={editRec.serviceLocation||""} onChange={e=>fldEdit("serviceLocation",e.target.value)} style={{...inp(),fontSize:13}}>
                         <option value="">選擇地點...</option>
@@ -5044,22 +5070,22 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                   </div>
                 </div>
               : <div key={r.id} style={{borderBottom:`1px solid ${C.border}`,background:i%2===0?C.card:C.cardAlt}}>
-                  <div onClick={()=>{setViewId(v=>v===r.id?null:r.id);setEditId(null);}}
+                  <div className="mr-row" onClick={()=>{setViewId(v=>v===r.id?null:r.id);setEditId(null);}}
                     style={{padding:"12px 20px",display:"grid",gridTemplateColumns:"56px 90px 80px 90px 70px 1fr auto",gap:8,alignItems:"center",fontSize:13,cursor:"pointer"}}>
-                    <span onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <span className="mr-chk" onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
                       <input type="checkbox" checked={!!r.caseSysDone} onChange={()=>toggleCaseSys(r)}
                         title={r.caseSysDone?"已登打紀錄":"尚未登打紀錄"}
                         style={{width:16,height:16,margin:0,cursor:"pointer",accentColor:C.primary}}/>
                     </span>
-                    <span style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    <span style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{caseName(r.caseId)}</span>
-                    <span style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(r.contactPersons&&r.contactPersons.length>0)?r.contactPersons.map(p=>p.type+(p.name?" "+p.name:"")).join("、"):(r.contactPersonType?r.contactPersonType+(r.contactPerson?" "+r.contactPerson:""):r.contactPerson||"—")}</span>
-                    <span style={{fontSize:11,whiteSpace:"nowrap"}}>
+                    <span className="mr-date" style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
+                    <span className="mr-case" style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{caseName(r.caseId)}</span>
+                    <span className="mr-who" style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(r.contactPersons&&r.contactPersons.length>0)?r.contactPersons.map(p=>p.type+(p.name?" "+p.name:"")).join("、"):(r.contactPersonType?r.contactPersonType+(r.contactPerson?" "+r.contactPerson:""):r.contactPerson||"—")}</span>
+                    <span className="mr-method" style={{fontSize:11,whiteSpace:"nowrap"}}>
                       <span style={{padding:"2px 7px",borderRadius:20,background:"#EEF7F3",color:C.primary,fontWeight:600}}>{r.contactMethod||"—"}</span>
                       <span style={{color:C.muted,marginLeft:4}}>{"x"}{r.contactCount||1}</span>
                     </span>
-                    <span style={{color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.content||"—"}</span>
-                    <button onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r,contactPersons:r.contactPersons||[]});}}
+                    <span className="mr-content" style={{color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.content||"—"}</span>
+                    <button className="mr-edit" onClick={e=>{e.stopPropagation();setEditId(r.id);setEditRec({...r,contactPersons:r.contactPersons||[]});}}
                       style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:12,color:C.muted,fontFamily:font,whiteSpace:"nowrap"}}>
                       {"✏️"}
                     </button>
