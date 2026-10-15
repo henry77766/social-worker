@@ -75,8 +75,35 @@ const FIREBASE_CONFIG = {
     #root .cr-table tbody tr:not(.cr-edit) td:nth-child(5)::before{content:"x"}
     #root .cr-table tbody tr.cr-edit{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"date date" "who who" "unit unit" "method count" "act act"}
     #root .cr-table tbody td[colspan]{grid-column:1/-1}
+    /* 月報表工具列：匯出、資源聯繫、比對主管名單收進「更多」 */
+    #root .mr-morebtn{display:inline-block}
+    #root .mr-toolbar:not(.mr-more-open) .mr-deskbtn{display:none!important}
+    /* 月報表統計卡：縮小留白，標題不換行 */
+    #root .mr-stats{gap:8px!important}
+    #root .mr-stats>div{padding:12px 10px!important;min-width:0!important}
+    #root .mr-stats>div>div:nth-child(2){font-size:11px!important;white-space:nowrap}
+    /* 檢查計算、家訪統計的個案表格：案號移到姓名下方，姓名與表頭不換行 */
+    #root .ph-tbl th:nth-child(2),#root .ph-tbl td:nth-child(2){display:none}
+    #root .ph-tbl th,#root .ph-tbl td{padding:6px 4px!important}
+    #root .ph-tbl th{font-size:11px;white-space:nowrap}
+    #root .ph-tbl td:first-child{white-space:nowrap}
+    #root .ph-tbl td[data-no]:not([data-no=""])::after{content:attr(data-no);display:block;font-size:10px;font-weight:400;color:#7A7268;margin-top:1px}
+    /* 個案管理分類：手機改用下拉選單 */
+    #root .gb-buttons{display:none!important}
+    #root .gb-select{display:flex}
+    /* 總覽快速聯繫紀錄標題：手機上隱藏副標，標題不換行 */
+    #root .qr-sub{display:none}
+    #root .qr-title{white-space:nowrap}
+    #root .qr-consult{white-space:nowrap;font-size:11px!important;padding:4px 10px!important}
+    /* 諮詢紀錄統計卡：手機上排成兩欄兩列 */
+    #root .ph-stats2{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important}
+    #root .ph-stats2>div{min-width:0!important;padding:12px 12px!important}
+    /* 家訪統計的等級摘要表：縮小留白，數字和標題不換行 */
+    #root .hv-sum th,#root .hv-sum td{padding:8px 4px!important;white-space:nowrap}
     #root .stat-row{flex-wrap:wrap}
   }
+  /* 只在手機出現的元件，電腦版預設隱藏 */
+  .mr-morebtn,.gb-select{display:none}
   .sync-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
   .pulse{animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
@@ -688,9 +715,9 @@ function QuickRecordPanel({data,setData,onSave,setView}){
     <div style={{background:C.card,borderRadius:14,border:`2px solid ${C.accent}`,marginBottom:24,overflow:"hidden"}}>
       <div style={{background:C.accent,padding:"12px 20px",display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:16}}>⚡</span>
-        <span style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:serif}}>快速聯繫紀錄</span>
-        <span style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
-        {setView&&<button onClick={()=>{window._czOpenNew=true;setView("consult");}} style={{marginLeft:"auto",padding:"4px 12px",borderRadius:20,border:"1px solid rgba(255,255,255,0.7)",background:"transparent",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600}}>☎ 諮詢來電，不開案</button>}
+        <span className="qr-title" style={{fontSize:14,fontWeight:700,color:"#fff",fontFamily:serif}}>快速聯繫紀錄</span>
+        <span className="qr-sub" style={{fontSize:11,color:"rgba(255,255,255,0.6)",marginLeft:4}}>填完直接歸入個案</span>
+        {setView&&<button className="qr-consult" onClick={()=>{window._czOpenNew=true;setView("consult");}} style={{marginLeft:"auto",padding:"4px 12px",borderRadius:20,border:"1px solid rgba(255,255,255,0.7)",background:"transparent",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600}}>☎ 諮詢來電，不開案</button>}
       </div>
       <div style={{padding:"16px 20px"}}>
         <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:12}}>
@@ -2058,6 +2085,15 @@ function CaseList({data,setData,onSave,onDelete,userName}){
   const [viewCase,setViewCase]=useState(null);
   const [statusFilter,setStatusFilter]=useState("all");
   const [groupBy,setGroupBy]=useState("none");
+  const GROUP_OPTS=[
+    {key:"none",       label:"不分類"},
+    {key:"changeLevel",label:"現在等級"},
+    {key:"disabilityLevel",label:"障礙等級"},
+    {key:"disabilityType",label:"障別"},
+    {key:"livingAlone",label:"獨居"},
+    {key:"elderlyCouple",label:"雙老"},
+    {key:"ageGroup",label:"65歲以上"},
+  ];
   const [openGroups,setOpenGroups]=useState({});
   const [subPick,setSubPick]=useState({}); // 障別分組展開後選的細分
   const [showCompleteness,setShowCompleteness]=useState(false);
@@ -2480,16 +2516,15 @@ function CaseList({data,setData,onSave,onDelete,userName}){
       )}
 
       {/* 分類方式切換 */}
-      <div style={{display:"flex",gap:0,marginBottom:20,background:C.cardAlt,borderRadius:10,border:`1px solid ${C.border}`,padding:4,width:"fit-content",flexWrap:"wrap"}}>
-        {[
-          {key:"none",       label:"不分類"},
-          {key:"changeLevel",label:"現在等級"},
-          {key:"disabilityLevel",label:"障礙等級"},
-          {key:"disabilityType",label:"障別"},
-          {key:"livingAlone",label:"獨居"},
-          {key:"elderlyCouple",label:"雙老"},
-          {key:"ageGroup",label:"65歲以上"},
-        ].map(({key,label})=>(
+      {/* 手機上改用下拉選單，見 gb-select */}
+      <label className="gb-select" style={{alignItems:"center",gap:8,marginBottom:16,fontSize:13,color:C.muted}}>
+        分類方式
+        <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={{...inp({fontSize:14}),width:"auto",flex:1}}>
+          {GROUP_OPTS.map(({key,label})=><option key={key} value={key}>{label}</option>)}
+        </select>
+      </label>
+      <div className="gb-buttons" style={{display:"flex",gap:0,marginBottom:20,background:C.cardAlt,borderRadius:10,border:`1px solid ${C.border}`,padding:4,width:"fit-content",flexWrap:"wrap"}}>
+        {GROUP_OPTS.map(({key,label})=>(
           <button key={key} onClick={()=>setGroupBy(key)}
             style={{padding:"6px 14px",borderRadius:7,border:"none",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:groupBy===key?600:400,
               background:groupBy===key?C.primary:"transparent",color:groupBy===key?"#fff":C.muted,transition:"all 0.15s"}}>
@@ -3854,6 +3889,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
   const [searchQuery,setSearchQuery]=useState("");
   const [viewId,setViewId]=useState(null);
   const [showCheck,setShowCheck]=useState(false);
+  const [mrMore,setMrMore]=useState(false); // 手機上「更多」按鈕展開
   const [showHomeVisit,setShowHomeVisit]=useState(false);
   const [showResources,setShowResources]=useState(false);
   const [showRecon,setShowRecon]=useState(false);
@@ -4541,14 +4577,14 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
       {/* 標題與月份切換 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>月服務報表</h1>
-        <div className="mr-toolbar" style={{display:"flex",alignItems:"center",gap:8}}>
+        <div className={"mr-toolbar"+(mrMore?" mr-more-open":"")} style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={prevMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>‹</button>
           <span style={{fontSize:15,fontWeight:700,color:C.text,minWidth:120,textAlign:"center",fontFamily:serif}}>
             民{rocYear}年 {MONTH_NAMES[month-1]}
           </span>
           <button onClick={nextMonth} style={{width:32,height:32,borderRadius:8,border:`1px solid ${C.border}`,background:C.card,cursor:"pointer",fontSize:16}}>›</button>
 
-          <button onClick={exportGovTable}
+          <button className="mr-deskbtn" onClick={exportGovTable}
             style={{padding:"7px 16px",borderRadius:8,border:"none",background:"#4A6E8A",color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             📋 匯出月報表
           </button>
@@ -4560,19 +4596,23 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showHomeVisit?"#C4824A":C.border}`,background:showHomeVisit?"#C4824A":"transparent",color:showHomeVisit?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             📊 {showHomeVisit?"隱藏家訪":"家訪統計"}
           </button>
-          <button onClick={()=>setShowResources(v=>!v)}
+          <button className="mr-deskbtn" onClick={()=>setShowResources(v=>!v)}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showResources?"#3A5FAA":C.border}`,background:showResources?"#3A5FAA":"transparent",color:showResources?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             🔗 {showResources?"隱藏資源":"資源聯繫"}
           </button>
-          <button onClick={()=>setShowRecon(v=>!v)}
+          <button className="mr-deskbtn" onClick={()=>setShowRecon(v=>!v)}
             style={{padding:"7px 16px",borderRadius:8,border:`1px solid ${showRecon?"#5E8A5A":C.border}`,background:showRecon?"#5E8A5A":"transparent",color:showRecon?"#fff":C.muted,cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
             🧾 {showRecon?"隱藏比對":"比對主管名單"}
+          </button>
+          <button className="mr-morebtn" onClick={()=>setMrMore(v=>!v)}
+            style={{padding:"7px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,cursor:"pointer",fontSize:12,fontFamily:font,whiteSpace:"nowrap"}}>
+            {mrMore?"收起":"⋯ 更多"}
           </button>
         </div>
       </div>
 
       {/* 統計摘要 */}
-      <div style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+      <div className="mr-stats" style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {[
           {label:"聯繫紀錄筆數",val:records.length,color:C.primary},
           {label:"服務人次",val:totalCount,sub:totalPending>0?`開案 ${totalActive} + 待評估 ${totalPending}`:null,color:C.accent},
@@ -4593,7 +4633,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
         <div style={{background:"#FFF5EB",border:"2px solid #C4824A",borderRadius:12,padding:20,marginBottom:20}}>
           <div style={{fontSize:15,fontWeight:700,color:"#7A4A20",marginBottom:16}}>📊 家訪統計（服務地點＝案家）</div>
           <div style={{background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`,marginBottom:12}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <table className="hv-sum" style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
               <thead>
                 <tr style={{background:"#FFE0C5"}}>
                   <th style={{padding:"8px 12px",textAlign:"left",color:"#7A4A20",fontWeight:700,borderBottom:`1px solid ${C.border}`}}>項目</th>
@@ -4627,7 +4667,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
           {homeVisitStats.items.length>0&&(
             <div style={{background:C.card,borderRadius:8,overflow:"hidden",border:`1px solid ${C.border}`}}>
               <div style={{padding:"8px 14px",background:"#FFF0E0",fontSize:12,fontWeight:700,color:"#7A4A20"}}>家訪個案明細（{homeVisitStats.items.length} 人）</div>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <table className="ph-tbl" style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead>
                   <tr style={{background:C.cardAlt}}>
                     <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>個案</th>
@@ -4640,7 +4680,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                 <tbody>
                   {homeVisitStats.items.map((it,i)=>(
                     <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
-                      <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{it.name}</td>
+                      <td data-no={it.caseNo||""} style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{it.name}</td>
                       <td style={{padding:"6px 10px",color:C.muted}}>{it.caseNo||"—"}</td>
                       <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.changeLevel||"—"}</td>
                       <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.count}</td>
@@ -4798,7 +4838,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                 </div>
                 {g.items.length===0
                   ?<div style={{padding:"10px 14px",fontSize:12,color:C.muted}}>本月無服務紀錄</div>
-                  :<table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  :<table className="ph-tbl" style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{background:C.cardAlt}}>
                         <th style={{padding:"6px 10px",textAlign:"left",color:C.muted,fontWeight:600}}>個案</th>
@@ -4814,7 +4854,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                         const noGender=!it.gender||(it.gender!=="男"&&it.gender!=="女");
                         return(
                         <tr key={i} style={{borderBottom:`1px solid ${C.border}`,background:noGender?"#FFF0F0":"transparent"}}>
-                          <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{noGender&&<span title="缺少性別" style={{color:"#D04545",marginRight:4}}>⚠️</span>}{it.name}</td>
+                          <td data-no={it.caseNo||""} style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{noGender&&<span title="缺少性別" style={{color:"#D04545",marginRight:4}}>⚠️</span>}{it.name}</td>
                           <td style={{padding:"6px 10px",color:C.muted}}>{it.caseNo||"—"}</td>
                           <td style={{padding:"6px 10px",textAlign:"center",color:noGender?"#D04545":C.text,fontWeight:noGender?700:400}}>{it.gender||"未填"}</td>
                           <td style={{padding:"6px 10px",textAlign:"center",color:C.muted,fontSize:11}}>{it.status||"—"}</td>
@@ -4870,7 +4910,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                 <div style={{padding:"10px 14px",background:"#FFE0E0",fontSize:13,fontWeight:700,color:"#A03030",display:"flex",alignItems:"center",gap:6}}>
                   ⚠️ 無法分類（現在等級為空）— {uncategorized.items.length} 個個案
                 </div>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <table className="ph-tbl" style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{background:"#FFE8E8"}}>
                       <th style={{padding:"6px 10px",textAlign:"left",color:"#A03030",fontWeight:600}}>個案</th>
@@ -4884,7 +4924,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                   <tbody>
                     {uncategorized.items.map((it,i)=>(
                       <tr key={i} style={{borderBottom:"1px solid #FFBBBB"}}>
-                        <td style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{it.name}</td>
+                        <td data-no={it.caseNo||""} style={{padding:"6px 10px",color:C.text,fontWeight:600}}>{it.name}</td>
                         <td style={{padding:"6px 10px",color:C.muted}}>{it.caseNo||"—"}</td>
                         <td style={{padding:"6px 10px",textAlign:"center",color:C.text}}>{it.gender||"未填"}</td>
                         <td style={{padding:"6px 10px",textAlign:"center",color:"#D04545",fontWeight:700}}>{it.changeLevel||"未填"}</td>
@@ -5413,7 +5453,7 @@ function ConsultPage({data,setData,onSave,onDelete,userName}){
         </Card>
       )}
 
-      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+      <div className="ph-stats2" style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {[
           {label:"本月諮詢筆數",val:monthList.length,color:C.primary},
           {label:"諮詢人次",val:sumTimes(monthList),color:C.accent},
