@@ -103,6 +103,10 @@ const FIREBASE_CONFIG = {
     }
     .grid-2col{grid-template-columns:1fr!important;}
     .stat-row>div{min-width:calc(50% - 7px)!important;}
+    /* 上面這段是寫給 .app-shell，但畫面實際用的是 .layout，結果外框固定一個螢幕高、內容區又不能捲，手機滑不下去。
+       改成內容區自己捲動，上方選單固定不動；高度用 dvh 才不會被手機瀏覽器的網址列和工具列擋住，不支援的瀏覽器會沿用 100vh */
+    #root .main-content{overflow-y:auto!important}
+    #root .layout{height:100dvh!important}
   }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   .cal-event-bar { font-size: 12px !important; }
