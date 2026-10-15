@@ -243,9 +243,6 @@ const EMPTY={cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],events:[],c
 function loadLocal(){
   try{const s=localStorage.getItem(LOCAL_KEY);return s?JSON.parse(s):null;}catch{return null;}
 }
-function saveLocal(data){
-  try{localStorage.setItem(LOCAL_KEY,JSON.stringify(data));}catch{}
-}
 
 // Firebase CRUD helpers
 // ── 舊資料搬移（一次性，僅限第一位原始使用者）────────────────────
@@ -554,7 +551,7 @@ function parseDisabilityType(val){
   return{type:"第"+found[0]+"類",detail:""};
 }
 
-function ExcelImporter({onImport,onClose}){
+function ExcelImporter({onImport,onClose,userName}){
   const [step,setStep]=useState("upload");
   const [headers,setHeaders]=useState([]);
   const [rows,setRows]=useState([]);
@@ -590,7 +587,7 @@ function ExcelImporter({onImport,onClose}){
   const doImport=()=>{
     if(!mapping["name"]){alert("請先對應「姓名」欄位");return;}
     const imported=rows.map(r=>{
-      const c={id:uid(),name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
+      const c={id:uid(),name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:userName||"",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
       FIELD_DEFS.forEach(({key})=>{if(mapping[key]!=null&&mapping[key]!==""){const val=r[parseInt(mapping[key])];if(DATE_KEYS.has(key)){c[key]=parseExcelDate(val);}
           else if(key==="disabilityType"){const r=parseDisabilityType(val);c.disabilityType=r.type;c.disabilityDetail=r.detail;}
           else{c[key]=val!=null?String(val).trim():"";}}});
@@ -1986,8 +1983,8 @@ const DISABILITY_SUBS={
 };
 const DISABILITY_CATS=["第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類"];
 
-function CaseList({data,setData,onSave,onDelete}){
-  const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:"莊子昂",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
+function CaseList({data,setData,onSave,onDelete,userName}){
+  const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:userName||"",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
   const [showForm,setShowForm]=useState(false);
   const [showIntake,setShowIntake]=useState(false);
   const [showImport,setShowImport]=useState(false);
@@ -2146,7 +2143,7 @@ function CaseList({data,setData,onSave,onDelete}){
 
   return(
     <div>
-      {showImport&&<ExcelImporter onImport={handleImport} onClose={()=>setShowImport(false)}/>}
+      {showImport&&<ExcelImporter onImport={handleImport} onClose={()=>setShowImport(false)} userName={userName}/>}
       {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
       {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} levelHistory={data.levelHistory} setData={setData} onSave={onSave} onDelete={onDelete} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
       {recordsCase&&<CaseRecordsModal caseData={recordsCase} caseRecords={data.caseRecords||[]} setData={setData} onSave={onSave} onDelete={onDelete} onClose={()=>setRecordsCase(null)}/>}
@@ -3925,7 +3922,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
         "",                // 案號（公式自動帶入）
         "",                // 姓名（公式自動帶入）
         "",                // 性別
-        "莊子昂",           // 主責社工
+        userName||"",       // 主責社工：登入者名稱
         null,null,null,null,null,null, // 個案等級異動前後、派案、開案
         null,null,null,          // 服務類型
         ...methodCols.map(col=>col===method?1:null),
@@ -5607,6 +5604,7 @@ function App(){
   const [view,setView]=useState("dashboard");
   const [data,setData]=useState({cases:[],visits:[],resources:DEFAULT_RESOURCES,diary:[],events:[],caseRecords:[],levelHistory:[]});
   const [syncStatus,setSyncStatus]=useState("local");
+  const [loadFailed,setLoadFailed]=useState(false);
   const [showSetup,setShowSetup]=useState(false);
   const [ready,setReady]=useState(false);
   const [authReady,setAuthReady]=useState(false);
@@ -5638,6 +5636,7 @@ function App(){
   useEffect(()=>{
     if(!authReady)return;
     (async()=>{
+      setLoadFailed(false);
       if(user&&isFirebaseConfigured()&&firebaseReady){
         setSyncStatus("syncing");
         try{
@@ -5672,9 +5671,9 @@ function App(){
           window._unsubFirestore=[unsubEvents,unsubRecords];
           setSyncStatus("synced");
         }catch(e){
+          // 讀取失敗：不再改用瀏覽器備份，畫面上方顯示提示
           console.error(e);
-          const local=loadLocal();
-          if(local)setData(local);
+          setLoadFailed(true);
           setSyncStatus("error");
         }
       }else if(!user){
@@ -5689,8 +5688,8 @@ function App(){
     })();
   },[authReady,user]);
 
-  // 本機備份
-  useEffect(()=>{if(ready&&user)saveLocal(data);},[data,ready,user]);
+  // 不再把個案資料備份在瀏覽器；開啟系統時刪掉舊版留下的備份
+  useEffect(()=>{try{localStorage.removeItem(LOCAL_KEY);}catch{}},[]);
 
   const saveUserName=async(name)=>{
     setUserName(name);
@@ -5733,9 +5732,15 @@ function App(){
       <Sidebar view={view} setView={setView} syncStatus={syncStatus} onSetup={()=>setShowSetup(v=>!v)} onLogout={user?handleLogout:null} userName={userName} onUserSettings={()=>setShowUserSettings(true)}/>
       {showUserSettings&&<UserSettings userName={userName} onSave={saveUserName} onClose={()=>setShowUserSettings(false)}/>}
       <div className="main-content" style={{flex:1,overflow:"auto",padding:"32px 36px",WebkitOverflowScrolling:"touch",minHeight:0}}>
+        {loadFailed&&(
+          <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",marginBottom:20,padding:"12px 16px",borderRadius:10,background:"#FDF0F0",border:`1px solid ${C.danger}`,color:C.danger,fontSize:13}}>
+            <span style={{flex:1,minWidth:200}}>讀取雲端資料失敗，所以畫面上看不到個案。資料都還在雲端，沒有遺失，請確認網路連線後重新整理。</span>
+            <button onClick={()=>location.reload()} style={{padding:"6px 14px",borderRadius:8,border:"none",background:C.danger,color:"#fff",cursor:"pointer",fontSize:12,fontFamily:font,fontWeight:600,whiteSpace:"nowrap"}}>重新整理</button>
+          </div>
+        )}
         {view==="dashboard"&&<Dashboard data={data} setView={setView} setData={setData} onSave={onSave}/>}
         {view==="calendar"  &&<CalendarView data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
-        {view==="cases"    &&<CaseList  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
+        {view==="cases"    &&<CaseList  data={data} setData={setData} onSave={onSave} onDelete={onDelete} userName={userName}/>}
         {view==="isp"      &&<IspPage data={data} setData={setData} onSave={onSave}/>}
         {view==="consult"  &&<ConsultPage data={data} setData={setData} onSave={onSave} onDelete={onDelete} userName={userName}/>}
         {view==="resources"&&<ResourceList data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
