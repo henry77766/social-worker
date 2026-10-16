@@ -2072,11 +2072,229 @@ const DISABILITY_SUBS={
 };
 const DISABILITY_CATS=["第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類"];
 
+// ── 從政府月報表匯入舊聯繫紀錄 ─────────────────────────────────
+// 照政府月報表 A 到 AS 共 45 欄的位置讀，跟 exportGovTable 匯出的欄位順序相同：
+// A 身分證字號、B 提供服務日期、D 姓名、P 到 W 服務方式、X 到 AA 服務地點、AB 到 AH 聯繫對象、AS 提供內容說明
+const GOVREC_METHODS=["訪視會談1-119分","訪視會談120分以上","電話1-9分","電話10-19分","電話20分以上","公文或函件","研討協條","其他"];
+const GOVREC_LOCS=["本機構","案家","外機構","其他"];
+const GOVREC_PERSONS=["本人","同住家屬","親友","專業團隊","機構","鄰居","其他"];
+// 日期：Excel 日期序號、民國或西元文字都可以，看不懂就回傳空字串
+function govRecDate(v){
+  if(v===null||v===undefined||v==="")return "";
+  const p=n=>String(n).padStart(2,"0");
+  let y,mo,d;
+  if(typeof v==="number"){
+    if(v<20000||v>80000)return "";
+    const dt=new Date(Date.UTC(1899,11,30)+Math.round(v)*86400000);
+    y=dt.getUTCFullYear();mo=dt.getUTCMonth()+1;d=dt.getUTCDate();
+  }else if(v instanceof Date){
+    if(isNaN(v))return "";
+    y=v.getFullYear();mo=v.getMonth()+1;d=v.getDate();
+  }else{
+    const m=String(v).trim().match(/^(\d{2,4})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*日?$/);
+    if(!m)return "";
+    y=parseInt(m[1]);if(y<1911)y+=1911;mo=parseInt(m[2]);d=parseInt(m[3]);
+  }
+  const chk=new Date(y,mo-1,d);
+  if(chk.getFullYear()!==y||chk.getMonth()!==mo-1||chk.getDate()!==d)return "";
+  return `${y}-${p(mo)}-${p(d)}`;
+}
+const govRecMarked=v=>v!==null&&v!==undefined&&String(v).trim()!==""&&String(v).trim()!=="0";
+// 讀出所有工作表裡「B 欄是日期」的資料列，表頭和空白列會自動略過
+function govRecParse(wb,file){
+  const rows=[];
+  wb.SheetNames.forEach(sn=>{
+    const aoa=window.XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null,blankrows:false});
+    aoa.forEach((r,i)=>{
+      const date=govRecDate(r[1]);
+      if(!date)return;
+      const id=String(r[0]??"").trim().toUpperCase();
+      const content=String(r[44]??"").trim();
+      const methods=GOVREC_METHODS.filter((_,k)=>govRecMarked(r[15+k]));
+      if(!id&&!content&&methods.length===0)return;
+      rows.push({file,sheet:sn,rowNo:i+1,id,name:String(r[3]??"").trim(),date,content,methods,
+        loc:GOVREC_LOCS.find((_,k)=>govRecMarked(r[23+k]))||"",
+        persons:GOVREC_PERSONS.filter((_,k)=>govRecMarked(r[27+k]))});
+    });
+  });
+  return rows;
+}
+// 服務方式換回系統的聯繫方式；訪視會談分不出家訪、晤談、外訪，用服務地點判斷
+function govRecMethod(methods,loc){
+  const m=methods[0]||"";
+  if(m.startsWith("電話"))return {contactMethod:"電訪",timeRange:m.replace("電話",""),inferred:false};
+  if(m.startsWith("訪視會談"))return {contactMethod:loc==="案家"?"家訪":loc==="本機構"?"晤談":"外訪",timeRange:m.replace("訪視會談",""),inferred:true};
+  if(m==="公文或函件")return {contactMethod:"函件",timeRange:"",inferred:false};
+  if(m==="研討協條")return {contactMethod:"個研",timeRange:"",inferred:false};
+  return {contactMethod:"其他",timeRange:"",inferred:false};
+}
+// 分類：可匯入、截止日以後、已在系統裡、沒有身分證字號、找不到個案
+// 1. 不同檔案裡完全一樣的列只算一次，例如同一個月的檔案選了兩次；同一個檔案裡的重複列照樣保留
+// 2. 跟系統裡已有的紀錄比對「個案＋日期＋聯繫方式＋內容」，系統已有幾筆就扣掉幾筆，同一天真的有兩筆一樣的也不會被吃掉
+function govRecPlan(rows,cases,existing,cutoff){
+  const sig=x=>[x.id,x.date,x.methods.join(","),x.loc,x.persons.join(","),x.content].join("|");
+  const perFile={};rows.forEach(x=>{const k=sig(x)+"\u0000"+x.file;perFile[k]=(perFile[k]||0)+1;});
+  const best={};rows.forEach(x=>{const k=sig(x),n=perFile[k+"\u0000"+x.file];if(!best[k]||n>best[k].n)best[k]={n,file:x.file};});
+  const keep=rows.filter(x=>best[sig(x)].file===x.file);
+  const byId=new Map((cases||[]).filter(c=>c.idNo).map(c=>[String(c.idNo).trim().toUpperCase(),c]));
+  const keyOf=(caseId,date,method,content)=>[caseId,date,method,(content||"").trim()].join("|");
+  const have={};(existing||[]).forEach(r=>{const k=keyOf(r.caseId,r.date,r.contactMethod||"",r.content);have[k]=(have[k]||0)+1;});
+  const plan={ok:[],late:[],dup:[],noId:[],noCase:[],sameFile:rows.length-keep.length};
+  const noCase=new Map(),seen={};
+  keep.forEach(x=>{
+    if(x.date>=cutoff){plan.late.push(x);return;}
+    if(!x.id){plan.noId.push(x);return;}
+    const c=byId.get(x.id);
+    if(!c){
+      if(!noCase.has(x.id))noCase.set(x.id,{id:x.id,name:"",rows:[]});
+      const g=noCase.get(x.id);if(!g.name&&x.name)g.name=x.name;g.rows.push(x);return;
+    }
+    const mm=govRecMethod(x.methods,x.loc);
+    const k=keyOf(c.id,x.date,mm.contactMethod,x.content);
+    seen[k]=(seen[k]||0)+1;
+    if(seen[k]<=(have[k]||0))plan.dup.push(x);else plan.ok.push({...x,c,...mm});
+  });
+  plan.noCase=[...noCase.values()];
+  return plan;
+}
+function GovRecordImportModal({data,setData,onClose,userName}){
+  const [rows,setRows]=useState(null);
+  const [fileNames,setFileNames]=useState([]);
+  const [cutoff,setCutoff]=useState("2026-04-01");
+  const [err,setErr]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [done,setDone]=useState(null);
+  const handleFiles=async e=>{
+    const fs=[...(e.target.files||[])];e.target.value="";
+    if(!fs.length)return;
+    setErr("");setDone(null);
+    try{
+      const all=[];
+      for(const f of fs){
+        const wb=window.XLSX.read(await f.arrayBuffer(),{type:"array"});
+        all.push(...govRecParse(wb,f.name));
+      }
+      if(all.length===0){setErr("檔案裡找不到資料列。請確認是政府月報表的格式：A 欄身分證字號、B 欄日期、AS 欄提供內容說明。");setRows(null);return;}
+      setRows(all);setFileNames(fs.map(f=>f.name));
+    }catch(ex){console.error(ex);setErr("讀取失敗："+ex.message);setRows(null);}
+  };
+  const plan=React.useMemo(()=>rows?govRecPlan(rows,data.cases,data.caseRecords,cutoff):null,[rows,data.cases,data.caseRecords,cutoff]);
+  const rocYm=ym=>{const [y,m]=ym.split("-");return `${parseInt(y)-1911}年${parseInt(m)}月`;};
+  const byMonth=plan?Object.entries(plan.ok.reduce((a,x)=>{const k=x.date.slice(0,7);a[k]=(a[k]||0)+1;return a;},{})).sort():[];
+  const inferredN=plan?plan.ok.filter(x=>x.inferred).length:0;
+  const doImport=async()=>{
+    if(!plan||!plan.ok.length)return;
+    setBusy(true);
+    const batchId="gov-"+Date.now().toString(36), now=new Date().toISOString(), today=toDay();
+    // 一次產生很多筆時 uid() 可能撞號，後面加上序號
+    const recs=plan.ok.map((x,i)=>({id:uid()+"-"+i,caseId:x.c.id,date:x.date,contactMethod:x.contactMethod,timeRange:x.timeRange,serviceLocation:x.loc,
+      contactPersons:x.persons.map(t=>({type:t,name:""})),contactPersonType:x.persons.join("、"),contactPerson:"",
+      contactCount:"1",serviceCount:"1",content:x.content,resourceUnit:"",
+      createdBy:userName||"社工",createdDate:today,createdAt:now,lastModified:today,
+      importedFrom:"政府月報表",importBatch:batchId,importFile:x.file}));
+    let ok=0,fail=0;const saved=[];
+    for(let i=0;i<recs.length;i+=400){
+      const chunk=recs.slice(i,i+400);
+      try{
+        if(db){const b=db.batch();chunk.forEach(r=>{const {id,...d}=r;b.set(userCol("caseRecords").doc(id),d);});await b.commit();}
+        ok+=chunk.length;saved.push(...chunk);
+      }catch(ex){console.error(ex);fail+=chunk.length;}
+    }
+    const ids=new Set(saved.map(r=>r.id));
+    setData(d=>({...d,caseRecords:[...(d.caseRecords||[]).filter(r=>!ids.has(r.id)),...saved]}));
+    setDone({ok,fail,months:byMonth.map(([k])=>rocYm(k))});setBusy(false);
+  };
+  const Box=({title,color,children})=>(
+    <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:12,background:C.card}}>
+      <div style={{fontSize:13,fontWeight:700,color:color||C.text,marginBottom:6}}>{title}</div>{children}
+    </div>
+  );
+  const small={fontSize:12,color:C.muted,lineHeight:1.7};
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(26,51,50,0.55)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>{if(e.target===e.currentTarget&&!busy)onClose();}}>
+      <div style={{background:C.card,borderRadius:16,width:"min(760px,96vw)",maxHeight:"88vh",overflow:"auto",boxShadow:"0 24px 64px rgba(0,0,0,0.3)"}}>
+        <div style={{padding:"20px 24px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div><div style={{fontSize:16,fontWeight:700,color:C.text,fontFamily:serif}}>從政府月報表匯入聯繫紀錄</div><div style={{fontSize:12,color:C.muted,marginTop:4}}>用身分證字號對應個案，先預覽，確認後才寫入</div></div>
+          <button onClick={()=>{if(!busy)onClose();}} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:C.muted}}>✕</button>
+        </div>
+        <div style={{padding:"16px 24px 24px"}}>
+          {done?(
+            <div>
+              <Box title={done.fail?"部分匯入失敗":"匯入完成"} color={done.fail?C.danger:"#2A9D5C"}>
+                <div style={{fontSize:14,color:C.text}}>成功匯入 <strong>{done.ok}</strong> 筆{done.fail?`，失敗 ${done.fail} 筆，請檢查網路後再匯入一次，已匯入的不會重複`:""}</div>
+                <div style={{...small,marginTop:6}}>到月報表切到 {done.months.join("、")}，就能逐筆檢核。匯入的紀錄沒有勾登打紀錄。</div>
+              </Box>
+              <div style={{display:"flex",justifyContent:"flex-end"}}><Btn onClick={onClose}>關閉</Btn></div>
+            </div>
+          ):(
+          <>
+          <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
+            <input type="file" accept=".xlsx,.xlsm,.xls" multiple onChange={handleFiles} style={{fontSize:13}}/>
+            <label style={{fontSize:13,color:C.muted,display:"flex",alignItems:"center",gap:6}}>只匯入這天以前的紀錄
+              <input type="date" value={cutoff} onChange={e=>setCutoff(e.target.value||"2026-04-01")} style={{...inp({fontSize:13}),width:"auto",padding:"5px 8px"}}/>
+            </label>
+          </div>
+          <div style={{...small,marginBottom:12}}>可以一次選好幾個月份的檔案。匯入前會先列出結果，確認後才會寫進系統。</div>
+          {err&&<div style={{color:C.danger,fontSize:13,marginBottom:12}}>{err}</div>}
+          {plan&&(
+            <div>
+              <div style={{...small,marginBottom:10}}>讀取 {fileNames.join("、")}，共 {rows.length} 筆資料列</div>
+              <Box title={`可以匯入 ${plan.ok.length} 筆`} color={C.primary}>
+                {byMonth.length?<div style={{fontSize:13,color:C.text}}>{byMonth.map(([k,n])=>`${rocYm(k)} ${n} 筆`).join("、")}</div>:<div style={small}>沒有可以匯入的紀錄</div>}
+                {plan.ok.length>0&&<div style={{...small,marginTop:6}}>
+                  {inferredN>0&&<div>・其中 {inferredN} 筆是訪視會談，依服務地點判斷：案家記成家訪、本機構記成晤談、其他地點記成外訪，陪同也會記成外訪</div>}
+                  <div>・每列記成 1 次聯繫、1 服務人次；聯繫對象只有類型，沒有姓名</div>
+                  <div>・匯入後不會勾登打紀錄，方便你逐筆檢核</div>
+                </div>}
+                {plan.ok.length>0&&(
+                  <div style={{marginTop:8,borderTop:`1px dashed ${C.border}`,paddingTop:8}}>
+                    {plan.ok.slice(0,5).map((x,i)=>(
+                      <div key={i} style={{fontSize:12,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",lineHeight:1.8}}>
+                        {fmtDate(x.date)}・{x.c.name}・{x.contactMethod}{x.timeRange?" "+x.timeRange:""}・{x.content||"沒有內容說明"}
+                      </div>
+                    ))}
+                    {plan.ok.length>5&&<div style={small}>……還有 {plan.ok.length-5} 筆</div>}
+                  </div>
+                )}
+              </Box>
+              {plan.noCase.length>0&&(
+                <Box title={`找不到個案，略過 ${plan.noCase.reduce((s,g)=>s+g.rows.length,0)} 筆，共 ${plan.noCase.length} 人`} color={C.accent}>
+                  <div style={{...small,marginBottom:4}}>系統裡沒有這些身分證字號的個案，例如已經結案沒有建檔：</div>
+                  {plan.noCase.map(g=>(
+                    <div key={g.id} style={{fontSize:13,color:C.text,lineHeight:1.9}}>
+                      {g.name||"未填姓名"}・{g.id}・{g.rows.length} 筆・{[...new Set(g.rows.map(x=>rocYm(x.date.slice(0,7))))].join("、")}
+                    </div>
+                  ))}
+                </Box>
+              )}
+              {(plan.dup.length>0||plan.late.length>0||plan.noId.length>0||plan.sameFile>0)&&(
+                <Box title="其他略過的資料" color={C.muted}>
+                  {plan.late.length>0&&<div style={small}>・{fmtDate(cutoff)} 以後的紀錄 {plan.late.length} 筆</div>}
+                  {plan.dup.length>0&&<div style={small}>・系統裡已經有同一天、同方式、同內容的紀錄 {plan.dup.length} 筆，同一個檔案匯入兩次也不會重複</div>}
+                  {plan.sameFile>0&&<div style={small}>・不同檔案裡完全相同的資料 {plan.sameFile} 筆，只算一次</div>}
+                  {plan.noId.length>0&&<div style={small}>・沒有身分證字號 {plan.noId.length} 筆：{plan.noId.slice(0,5).map(x=>`${x.file} 第 ${x.rowNo} 列`).join("、")}{plan.noId.length>5?"……":""}</div>}
+                </Box>
+              )}
+              <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:4}}>
+                <Btn variant="secondary" onClick={onClose} disabled={busy}>取消</Btn>
+                <Btn onClick={doImport} disabled={busy||!plan.ok.length}>{busy?"匯入中…":`確認匯入 ${plan.ok.length} 筆`}</Btn>
+              </div>
+            </div>
+          )}
+          </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CaseList({data,setData,onSave,onDelete,userName}){
   const blank={name:"",caseNo:"",idNo:"",status:"開案中",source:"",referralUnit:"",gender:"",birthDate:"",age:"",disabilityType:"",disabilitySub:"",disabilityLevel:"",disabilityDetail:"",registeredAddr:"",addr:"",livingStatus:"",livingAlone:"",elderlyCouple:"",mainWorker:userName||"",caseInDate:"",assignDate:"",evalDueDate:"",openDate:toDay(),systemLevel:"",initialLevel:"",changeLevel:"",phone:"",phone2:"",emergencyContact:"",emergencyPhone:"",emergencyRelation:"",note:""};
   const [showForm,setShowForm]=useState(false);
   const [showIntake,setShowIntake]=useState(false);
   const [showImport,setShowImport]=useState(false);
+  const [showRecImport,setShowRecImport]=useState(false); // 從政府月報表匯入聯繫紀錄
   const [form,setForm]=useState(blank);
   const [search,setSearch]=useState("");
   const [expanded,setExpanded]=useState(null);
@@ -2242,6 +2460,7 @@ function CaseList({data,setData,onSave,onDelete,userName}){
   return(
     <div>
       {showImport&&<ExcelImporter onImport={handleImport} onClose={()=>setShowImport(false)} userName={userName}/>}
+      {showRecImport&&<GovRecordImportModal data={data} setData={setData} onClose={()=>setShowRecImport(false)} userName={userName}/>}
       {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
       {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} levelHistory={data.levelHistory} setData={setData} onSave={onSave} onDelete={onDelete} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
       {recordsCase&&<CaseRecordsModal caseData={recordsCase} caseRecords={data.caseRecords||[]} setData={setData} onSave={onSave} onDelete={onDelete} onClose={()=>setRecordsCase(null)}/>}
@@ -2335,6 +2554,8 @@ function CaseList({data,setData,onSave,onDelete,userName}){
                   {[
                     {label:"📂 匯入 Excel", active:false,
                      fn:()=>{setShowImport(true);setShowForm(false);}},
+                    {label:"📥 從月報表匯入聯繫紀錄", active:false,
+                     fn:()=>{setShowRecImport(true);setShowForm(false);}},
                     {label:showDuplicates?"隱藏重複":"🔍 找出重複", active:showDuplicates,
                      fn:()=>setShowDuplicates(v=>!v)},
                     {label:selectMode?"取消選取":"☑ 批次刪除", active:selectMode,
