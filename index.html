@@ -687,6 +687,16 @@ function ExcelImporter({onImport,onClose,userName}){
 }
 
 
+// 次數、服務人次：空白或小於 1 一律當成 1
+const fixCount=v=>{const n=parseInt(v);return String(n>=1?n:1);};
+// 次數、服務人次的輸入框：可以先整個刪掉再輸入新的數字，手機上才改得動；離開欄位時空白會自動補回 1
+function CountInput({value,onChange,style}){
+  return <input type="number" inputMode="numeric" min="1" value={value??"1"}
+    onChange={e=>onChange(e.target.value)}
+    onBlur={e=>{const v=fixCount(e.target.value);if(v!==e.target.value)onChange(v);}}
+    style={style}/>;
+}
+
 // ── DASHBOARD ───────────────────────────────────────────────────
 function QuickRecordPanel({data,setData,onSave,setView}){
   const blank={date:toDay(),caseId:"",contactPersons:[],contactPerson:"",contactPersonType:"",contactMethod:"電訪",content:"",contactCount:"1",serviceCount:"1",resourceUnit:"",serviceLocation:"",timeRange:""};
@@ -701,7 +711,7 @@ function QuickRecordPanel({data,setData,onSave,setView}){
     const persons=form.contactPersons||[];
     const derivedType=persons.length>0?persons.map(p=>p.type).join("、"):form.contactPersonType||"";
     const derivedName=persons.length>0?persons.map(p=>p.name).filter(Boolean).join("、"):form.contactPerson||"";
-    const item={...form,contactPersonType:derivedType,contactPerson:derivedName,contactPersons:persons,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
+    const item={...form,contactCount:fixCount(form.contactCount),serviceCount:fixCount(form.serviceCount),contactPersonType:derivedType,contactPerson:derivedName,contactPersons:persons,id:uid(),createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setSaved(true);
@@ -766,11 +776,11 @@ function QuickRecordPanel({data,setData,onSave,setView}){
             </div>
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>次數</label>
-              <input type="number" min="1" value={form.contactCount||"1"} onChange={e=>fld("contactCount",e.target.value)} style={inp({fontSize:13})}/>
+              <CountInput value={form.contactCount} onChange={v=>fld("contactCount",v)} style={inp({fontSize:13})}/>
             </div>
             <div>
               <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3,fontWeight:500}}>服務人次</label>
-              <input type="number" min="1" value={form.serviceCount||"1"} onChange={e=>fld("serviceCount",e.target.value)} style={inp({fontSize:13})}/>
+              <CountInput value={form.serviceCount} onChange={v=>fld("serviceCount",v)} style={inp({fontSize:13})}/>
             </div>
           </div>
           {/* 服務時間範圍（依聯繫方式動態顯示） */}
@@ -2104,13 +2114,14 @@ const govRecMarked=v=>v!==null&&v!==undefined&&String(v).trim()!==""&&String(v).
 // 讀出所有工作表裡「B 欄是日期」的資料列，表頭和空白列會自動略過
 // 一律從 A1 開始讀，空白列也保留，欄位位置和列號才不會因為表格上方有空白而跑掉
 // 另外記下資料列上方的表頭文字，預覽時讓使用者核對每一欄是不是讀對了
+// 服務方式 P 到 W 欄的表頭明顯不是月報表的工作表，例如派案總冊，整張略過，不會被當成聯繫紀錄
 function govRecParse(wb,file){
   const XL=window.XLSX, rows=[], heads=[];
   wb.SheetNames.forEach(sn=>{
     const ws=wb.Sheets[sn]; if(!ws||!ws["!ref"])return;
     const rg=XL.utils.decode_range(ws["!ref"]); rg.s.r=0; rg.s.c=0;
     const aoa=XL.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:true,range:XL.utils.encode_range(rg)});
-    let first=-1;
+    let first=-1; const sheetRows=[];
     aoa.forEach((r,i)=>{
       const date=govRecDate(r[1]);
       if(!date)return;
@@ -2119,7 +2130,7 @@ function govRecParse(wb,file){
       const methods=GOVREC_METHODS.filter((_,k)=>govRecMarked(r[15+k]));
       if(!id&&!content&&methods.length===0)return;
       if(first<0)first=i;
-      rows.push({file,sheet:sn,rowNo:i+1,id,name:String(r[3]??"").trim(),date,content,methods,
+      sheetRows.push({file,sheet:sn,rowNo:i+1,id,name:String(r[3]??"").trim(),date,content,methods,
         loc:GOVREC_LOCS.find((_,k)=>govRecMarked(r[23+k]))||"",
         persons:GOVREC_PERSONS.filter((_,k)=>govRecMarked(r[27+k])),
         services:GOVREC_SERVICES.filter((_,k)=>govRecMarked(r[38+k]))});
@@ -2137,7 +2148,12 @@ function govRecParse(wb,file){
       const parts=[];hr.forEach(r=>{const t=String(r[c]??"").trim();if(t&&parts[parts.length-1]!==t)parts.push(t);});
       labels[c]=parts.join(" ");
     }
-    heads.push({file,sheet:sn,headerRows:first-top,labels});
+    const h={file,sheet:sn,headerRows:first-top,labels,rowCount:sheetRows.length};
+    // 服務方式 8 欄有表頭、但對得上的不到一半，就判定不是月報表；完全沒有表頭的工作表沒辦法判斷，照常讀取
+    const methodChecks=govRecCheckHead(h).filter(c=>c.c>=15&&c.c<=22);
+    h.notReport=methodChecks.some(c=>c.text)&&methodChecks.filter(c=>c.ok).length<4;
+    heads.push(h);
+    if(!h.notReport)rows.push(...sheetRows);
   });
   return {rows,heads};
 }
@@ -2221,7 +2237,11 @@ function GovRecordImportModal({data,setData,onClose,userName}){
         const wb=window.XLSX.read(await f.arrayBuffer(),{type:"array"});
         const r=govRecParse(wb,f.name);all.push(...r.rows);hs.push(...r.heads);
       }
-      if(all.length===0){setErr("檔案裡找不到資料列。請確認是政府月報表的格式：A 欄身分證字號、B 欄日期、AS 欄提供內容說明。");setRows(null);return;}
+      if(all.length===0){
+        const not=hs.filter(h=>h.notReport).map(h=>`${h.file}・${h.sheet}`);
+        setErr(not.length?`選的檔案不是政府月報表：${not.join("、")} 的服務方式欄位表頭對不上，已經略過。請改選政府月報表的檔案。`:"檔案裡找不到資料列。請確認是政府月報表的格式：A 欄身分證字號、B 欄日期、AS 欄提供內容說明。");
+        setRows(null);return;
+      }
       setRows(all);setHeads(hs);setFileNames(fs.map(f=>f.name));
     }catch(ex){console.error(ex);setErr("讀取失敗："+ex.message);setRows(null);}
   };
@@ -2234,7 +2254,8 @@ function GovRecordImportModal({data,setData,onClose,userName}){
   const splitExtra=plan?plan.ok.filter(x=>x.part>0).length:0;               // 拆開後多出來的筆數
   const mailedN=plan?plan.ok.filter(x=>x.mailed).length:0;
   const byYear=plan?Object.entries(plan.ok.reduce((a,x)=>{const k=x.date.slice(0,4);a[k]=(a[k]||0)+1;return a;},{})).sort():[];
-  const headChecks=heads.map(h=>({h,checks:govRecCheckHead(h)}));
+  const notReport=heads.filter(h=>h.notReport);
+  const headChecks=heads.filter(h=>!h.notReport).map(h=>({h,checks:govRecCheckHead(h)}));
   const headBad=headChecks.some(x=>x.checks.some(c=>!c.ok));
   const doImport=async()=>{
     if(!plan||!plan.ok.length)return;
@@ -2296,6 +2317,14 @@ function GovRecordImportModal({data,setData,onClose,userName}){
           {plan&&(
             <div>
               <div style={{...small,marginBottom:10}}>讀取 {fileNames.join("、")}，共 {rows.length} 筆資料列</div>
+              {notReport.length>0&&(
+                <Box title={`略過 ${notReport.length} 個不是政府月報表的工作表`} color={C.accent}>
+                  {notReport.map((h,i)=>(
+                    <div key={i} style={{fontSize:13,color:C.text,lineHeight:1.8}}>{h.file}・{h.sheet}・{h.rowCount} 列</div>
+                  ))}
+                  <div style={{...small,marginTop:4}}>這些工作表 P 到 W 欄的表頭不是服務方式，例如 P 欄是「{notReport[0].labels[15]||"空白"}」，所以整張不匯入，裡面的資料不會被當成聯繫紀錄。</div>
+                </Box>
+              )}
               <Box title={headBad?"⚠ 欄位對照：有欄位的表頭跟預期不同，請先確認再匯入":"✓ 欄位對照：讀取的欄位和表頭都對得上"} color={headBad?C.danger:"#2A9D5C"}>
                 {headChecks.length===0&&<div style={small}>檔案沒有表頭，沒辦法核對欄位</div>}
                 {headChecks.map(({h,checks},i)=>{
@@ -3719,7 +3748,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
 
   const handleAdd=async()=>{
     if(!addRec.contactPerson.trim()&&!addRec.content.trim()){alert("請填寫聯繫對象或聯繫內容");return;}
-    const item={...addRec,id:uid(),caseId:caseData.id,createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
+    const item={...addRec,contactCount:fixCount(addRec.contactCount),serviceCount:fixCount(addRec.serviceCount),id:uid(),caseId:caseData.id,createdBy:(typeof currentUserName!=="undefined"?currentUserName:"社工"),createdDate:toDay(),createdAt:new Date().toISOString(),lastModified:toDay()};
     setData(d=>({...d,caseRecords:[...(d.caseRecords||[]),item]}));
     await onSave("caseRecords",item);
     setAddRec(blank);setShowAdd(false);
@@ -3728,7 +3757,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
     const mrPersons=editRec.contactPersons||[];
     const mrType=mrPersons.length>0?mrPersons.map(p=>p.type).join("、"):editRec.contactPersonType||"";
     const mrName=mrPersons.length>0?mrPersons.map(p=>p.name).filter(Boolean).join("、"):editRec.contactPerson||"";
-    const updated={...editRec,contactPersons:mrPersons,contactPersonType:mrType,contactPerson:mrName,lastModified:toDay()};
+    const updated={...editRec,contactCount:fixCount(editRec.contactCount),serviceCount:fixCount(editRec.serviceCount),contactPersons:mrPersons,contactPersonType:mrType,contactPerson:mrName,lastModified:toDay()};
     setData(d=>({...d,caseRecords:(d.caseRecords||[]).map(r=>r.id===editId?updated:r)}));
     await onSave("caseRecords",updated);
     setEditId(null);
@@ -3802,11 +3831,11 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               </div>
               <div>
                 <Label>聯繫次數</Label>
-                <input type="number" min="1" value={addRec.contactCount} onChange={e=>fldAdd("contactCount",e.target.value)} style={{...inp(),width:72}}/>
+                <CountInput value={addRec.contactCount} onChange={v=>fldAdd("contactCount",v)} style={{...inp(),width:72}}/>
               </div>
               <div>
                 <Label>服務人次</Label>
-                <input type="number" min="1" value={addRec.serviceCount||"1"} onChange={e=>fldAdd("serviceCount",e.target.value)} style={{...inp(),width:72}}/>
+                <CountInput value={addRec.serviceCount} onChange={v=>fldAdd("serviceCount",v)} style={{...inp(),width:72}}/>
               </div>
             </div>
             {["家訪","晤談","外訪","陪同"].includes(addRec.contactMethod)&&(
@@ -3899,7 +3928,7 @@ function CaseRecordsModal({caseData,caseRecords,setData,onSave,onDelete,onClose}
               <td style={{padding:"8px 12px"}}><input value={editRec.contactPerson||""} onChange={e=>fldEdit("contactPerson",e.target.value)} placeholder="聯繫對象" style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
               <td style={{padding:"8px 12px"}}><input value={editRec.resourceUnit||""} onChange={e=>fldEdit("resourceUnit",e.target.value)} placeholder="資源聯繫單位" style={{...inp(),fontSize:13,padding:"6px 8px"}}/></td>
               <td style={{padding:"8px 12px"}}><select value={editRec.contactMethod||"電訪"} onChange={e=>{const v=e.target.value;fldEdit("contactMethod",v);if(v==="家訪"&&!editRec.serviceLocation)fldEdit("serviceLocation","案家");}} style={{...inp(),fontSize:13,padding:"6px 8px"}}>{CONTACT_METHODS.map(m=><option key={m}>{m}</option>)}</select></td>
-              <td style={{padding:"8px 12px"}}><input type="number" min="1" value={editRec.contactCount||"1"} onChange={e=>fldEdit("contactCount",e.target.value)} style={{...inp(),fontSize:13,padding:"6px 8px",width:64}}/></td>
+              <td style={{padding:"8px 12px"}}><CountInput value={editRec.contactCount} onChange={v=>fldEdit("contactCount",v)} style={{...inp(),fontSize:13,padding:"6px 8px",width:64}}/></td>
               <td style={{padding:"8px 12px",whiteSpace:"nowrap"}}><div style={{display:"flex",gap:6}}><button onClick={handleEdit} style={{padding:"5px 12px",borderRadius:6,background:C.primary,color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontFamily:font}}>儲存</button><button onClick={()=>setEditId(null)} style={{padding:"5px 10px",borderRadius:6,background:C.cardAlt,color:C.text,border:`1px solid ${C.border}`,cursor:"pointer",fontSize:12,fontFamily:font}}>取消</button></div></td>
             </tr>
                   : (
@@ -4456,7 +4485,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
   const fldEdit=(k,v)=>setEditRec(r=>({...r,[k]:v}));
 
   const handleSave=async()=>{
-    const updated={...editRec,lastModified:toDay()};
+    const updated={...editRec,contactCount:fixCount(editRec.contactCount),serviceCount:fixCount(editRec.serviceCount),lastModified:toDay()};
     setData(d=>({...d,caseRecords:(d.caseRecords||[]).map(r=>r.id===editId?updated:r)}));
     await onSave("caseRecords",updated);
     setEditId(null);
@@ -5336,11 +5365,11 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                       </div>
                       <div style={{flex:1}}>
                         <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>聯繫次數</label>
-                        <input type="number" min="1" value={editRec.contactCount||"1"} onChange={e=>fldEdit("contactCount",e.target.value)} style={{...inp(),fontSize:13}}/>
+                        <CountInput value={editRec.contactCount} onChange={v=>fldEdit("contactCount",v)} style={{...inp(),fontSize:13}}/>
                       </div>
                       <div style={{flex:1}}>
                         <label style={{fontSize:11,color:C.muted,display:"block",marginBottom:3}}>服務人次</label>
-                        <input type="number" min="1" value={editRec.serviceCount||"1"} onChange={e=>fldEdit("serviceCount",e.target.value)} style={{...inp(),fontSize:13}}/>
+                        <CountInput value={editRec.serviceCount} onChange={v=>fldEdit("serviceCount",v)} style={{...inp(),fontSize:13}}/>
                       </div>
                     </div>
                     {["家訪","晤談","外訪","陪同"].includes(editRec.contactMethod)&&(
