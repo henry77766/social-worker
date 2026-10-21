@@ -1726,7 +1726,7 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="姓名 *" field="name" value={form["name"]} onChange={fld}/>
             <FormRow label="案號" field="caseNo" value={form["caseNo"]} onChange={fld}/>
             <FormRow label="身分證字號" field="idNo" value={form["idNo"]} onChange={fld}/>
-                    <FormRow label="案況" field="status" value={form["status"]} onChange={fld} opts={["開案中","待評估","結案","列管中"]}/>
+                    <FormRow label="案況" field="status" value={form["status"]} onChange={fld} opts={CASE_STATUS}/>
             <FormRow label="生理性別" field="gender" value={form["gender"]} onChange={fld} opts={["","男","女","其他"]}/>
             <div>
               <Label>出生日期</Label>
@@ -1841,7 +1841,7 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
   const [editHistForm,setEditHistForm]=useState({});
   const records=[...(caseRecords||[]).filter(r=>r.caseId===c.id)]
     .sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A","列管中":"#8B6DB8"};
+  const stColor={"開案中":"#2A9D5C","結案":"#7A7268","待評估":"#4A6E8A","不開案":"#D4A088","列管中":"#8B6DB8"};
 
   const Row=({label,val})=>val?(
     <div style={{display:"flex",gap:8,fontSize:13,marginBottom:5}}>
@@ -2067,7 +2067,9 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
 }
 
 // ── CASES ───────────────────────────────────────────────────────
-const CASE_STATUS=["開案中","待評估","結案","列管中"];
+const CASE_STATUS=["開案中","待評估","不開案","結案","列管中"];
+// 待評估和不開案的服務都算開案評估期，月報表的服務人次算在同一組
+const isEvalStage=c=>!!c&&(c.status==="待評估"||c.status==="不開案");
 const DISABILITY_LEVELS=["輕度","中度","重度","極重度"];
 const DISABILITY_TYPES=["","第1類","第2類","第3類","第4類","第5類","第6類","第7類","第8類","多重障"];
 const DISABILITY_SUBS={
@@ -2564,7 +2566,7 @@ function CaseList({data,setData,onSave,onDelete,userName}){
   }
 
   const filtered=data.cases.filter(c=>(statusFilter==="all"||c.status===statusFilter)&&(c.name?.includes(search)||c.caseNo?.includes(search)||c.addr?.includes(search)||c.idNo?.includes(search)||c.disabilityType?.includes(search)));
-  const stColor={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","列管中":"#8B6DB8"};
+  const stColor={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","不開案":"#A8694E","列管中":"#8B6DB8"};
   // FRow moved outside as FormRow to prevent focus loss
 
   return(
@@ -2870,8 +2872,8 @@ function CaseList({data,setData,onSave,onDelete,userName}){
       {(()=>{
         const CaseCard=({c})=>{
           const cVis=data.visits.filter(v=>v.caseId===c.id);
-          const stBg={"開案中":"#E8F5EE","結案":"#F0F0EE","待評估":"#EAF0F8","列管中":"#F0E8FF"};
-          const stDot={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","列管中":"#8B6DB8"};
+          const stBg={"開案中":"#E8F5EE","結案":"#F0F0EE","待評估":"#EAF0F8","不開案":"#F7EDE7","列管中":"#F0E8FF"};
+          const stDot={"開案中":C.primary,"結案":C.muted,"待評估":"#4A6E8A","不開案":"#A8694E","列管中":"#8B6DB8"};
           return(
             <div key={c.id}
               onClick={selectMode?()=>toggleSelect(c.id):undefined}
@@ -3145,7 +3147,7 @@ function DataCompleteness({cases,onOpenCase}){
           <div style={{fontSize:13,color:C.muted}}>整體完整度 · 開案中 {N} 筆 · {REQUIRED_FIELDS.length} 個必填欄位</div>
         </div>
         <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.6}}>
-          僅統計案況為「開案中」的個案，以及「基本資料」與「地址與居住」欄位；待評估、結案、列管中不列入。
+          僅統計案況為「開案中」的個案，以及「基本資料」與「地址與居住」欄位；待評估、不開案、結案、列管中不列入。
         </div>
       </Card>
 
@@ -4524,8 +4526,8 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
     });
 
     levels.forEach(lv=>{
-      // 等級分組：排除待評估
-      const levelCases=(data.cases||[]).filter(c=>(c.changeLevel||"").toString().includes(lv)&&c.status!=="待評估");
+      // 等級分組：排除待評估、不開案
+      const levelCases=(data.cases||[]).filter(c=>(c.changeLevel||"").toString().includes(lv)&&!isEvalStage(c));
       const subGroups=lv==="四"
         ?[{label:"第四級（不含列管）",cases:levelCases.filter(c=>c.status!=="列管中")},
           {label:"列管中心案",cases:levelCases.filter(c=>c.status==="列管中")}]
@@ -4544,8 +4546,8 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
         checkGroups.push({label:g.label,items,maleP,femaleP,maleT,femaleT});
       });
     });
-    // 待評估獨立區塊（不分等級）
-    const pendingCases=(data.cases||[]).filter(c=>c.status==="待評估");
+    // 待評估、不開案獨立區塊（不分等級）
+    const pendingCases=(data.cases||[]).filter(isEvalStage);
     const pendingItems=[];
     let pMaleP=0,pFemaleP=0,pMaleT=0,pFemaleT=0;
     pendingCases.forEach(c=>{
@@ -4557,7 +4559,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
       else if(c.gender==="女"){pFemaleP++;pFemaleT+=times;}
     });
     if(pendingItems.length>0||pendingCases.length>0){
-      checkGroups.push({label:"待評估",items:pendingItems,maleP:pMaleP,femaleP:pFemaleP,maleT:pMaleT,femaleT:pFemaleT});
+      checkGroups.push({label:"待評估、不開案",items:pendingItems,maleP:pMaleP,femaleP:pFemaleP,maleT:pMaleT,femaleT:pFemaleT});
     }
   }
 
@@ -4735,7 +4737,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
   };
   const rbCaseType=c=>{
     if(!c)return"";
-    if(c.status==="待評估")return"開案評估期";
+    if(isEvalStage(c))return"開案評估期";
     const s=String(c.changeLevel||"");
     const LV=[["一",1],["二",2],["三",3],["四",4],["1",1],["2",2],["3",3],["4",4]];
     const hit=LV.find(([k])=>s.includes(k));
@@ -4886,14 +4888,17 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
   const caseNo=id=>data.cases.find(c=>c.id===id)?.caseNo||"";
 
   // 統計
-  const pendingIds=new Set((data.cases||[]).filter(c=>c.status==="待評估").map(c=>c.id));
-  let totalActive=0,totalPending=0;
+  // 服務人次分成開案、待評估、不開案三塊，待評估和不開案都屬於開案評估期
+  const evalStatus=new Map((data.cases||[]).filter(isEvalStage).map(c=>[c.id,c.status]));
+  let totalActive=0,totalPending=0,totalNoOpen=0;
   records.forEach(r=>{
     const v=parseInt(r.serviceCount||1);
-    if(pendingIds.has(r.caseId))totalPending+=v;
+    const st=evalStatus.get(r.caseId);
+    if(st==="不開案")totalNoOpen+=v;
+    else if(st)totalPending+=v;
     else totalActive+=v;
   });
-  const totalCount=totalActive+totalPending;
+  const totalCount=totalActive+totalPending+totalNoOpen;
   const byMethod={};
   records.forEach(r=>{
     const m=r.contactMethod||"其他";
@@ -4951,13 +4956,14 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
       <div className="mr-stats" style={{display:"flex",gap:12,marginBottom:20,flexWrap:"wrap"}}>
         {[
           {label:"聯繫紀錄筆數",val:records.length,color:C.primary},
-          {label:"服務人次",val:totalCount,sub:totalPending>0?`開案 ${totalActive} + 待評估 ${totalPending}`:null,color:C.accent},
+          {label:"服務人次",val:totalCount,sub:(totalPending||totalNoOpen)?[`開案 ${totalActive}`,totalPending?`待評估 ${totalPending}`:"",totalNoOpen?`不開案 ${totalNoOpen}`:""].filter(Boolean):null,color:C.accent},
           {label:"服務個案數",val:caseCount,color:"#4A6E8A"},
         ].map(({label,val,color,sub})=>(
           <div key={label} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 20px",flex:1,minWidth:100}}>
             <div style={{fontSize:28,fontWeight:700,color,fontFamily:serif}}>{val}</div>
             <div style={{fontSize:12,color:C.muted,marginTop:4}}>{label}</div>
-            {sub&&<div style={{fontSize:11,color:C.muted,marginTop:2,fontWeight:500}}>{sub}</div>}
+            {/* 每一塊不拆開，手機上只會在兩塊之間換行 */}
+            {sub&&<div style={{fontSize:11,color:C.muted,marginTop:2,fontWeight:500}}>{sub.map((s,i)=><React.Fragment key={i}>{i?" ":""}<span style={{whiteSpace:"nowrap"}}>{i?"+ ":""}{s}</span></React.Fragment>)}</div>}
           </div>
         ))}
       </div>
