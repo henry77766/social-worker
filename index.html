@@ -1682,7 +1682,7 @@ function DisabilityFields({form, fld}){
 }
 
 // ── CASE EDIT MODAL ──────────────────────────────────────────────
-function CaseEditModal({caseData, onSave, onClose}){
+function CaseEditModal({caseData, onSave, onClose, resources}){
   const [form, setForm] = useState({...caseData});
   const [saving, setSaving] = useState(false);
   const [showIntake, setShowIntake] = useState(false);
@@ -1697,7 +1697,7 @@ function CaseEditModal({caseData, onSave, onClose}){
   const handleSave = async () => {
     if(!form.name?.trim()){alert("姓名不能為空");return;}
     setSaving(true);
-    await onSave(form);
+    await onSave(nuClean(form));
     setSaving(false);
     onClose();
   };
@@ -1783,6 +1783,9 @@ function CaseEditModal({caseData, onSave, onClose}){
             <FormRow label="緊急聯絡電話" field="emergencyPhone" value={form["emergencyPhone"]} onChange={fld}/>
           </div>
 
+          <SectionTitle>網絡單位</SectionTitle>
+          <NetworkUnitsEditor value={form.networkUnits} onChange={v=>fld("networkUnits",v)} resources={resources}/>
+
           <div onClick={()=>setShowIntake(v=>!v)} style={{fontSize:12,color:C.muted,fontWeight:600,marginBottom:10,paddingBottom:6,borderBottom:`1px solid ${C.border}`,letterSpacing:"0.04em",cursor:"pointer",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
             <span style={{fontSize:10}}>{showIntake?"▼":"▶"}</span>進案資訊<span style={{fontWeight:400,fontSize:11}}>（{showIntake?"點擊收起":"點擊展開"}）</span>
           </div>
@@ -1832,6 +1835,243 @@ function PhoneLinks({text}){
   }
   if(last<s.length)out.push(s.slice(last));
   return <>{out}</>;
+}
+
+// ── 網絡單位與個案小視窗 ─────────────────────────────────────────
+// 每個個案可以記好幾個網絡單位，存在個案資料的 networkUnits：[{id,unit,contact,phone,note}]
+const NU_FIELDS=[["unit","單位"],["contact","窗口"],["phone","電話"],["note","備註"]];
+const NU_HINTS={unit:"例如萬華區社福中心",contact:"窗口姓名、職稱",phone:"可填多支，例如總機分機、手機",note:"例如上班時間、負責業務"};
+function nuHasContent(u){return !!(u&&NU_FIELDS.some(([k])=>String(u[k]||"").trim()));}
+// 存檔前拿掉整列空白的網絡單位，其他欄位去掉前後空白
+function nuClean(form){
+  if(!form||!Array.isArray(form.networkUnits))return form;
+  return {...form,networkUnits:form.networkUnits.filter(nuHasContent).map(u=>({...u,unit:String(u.unit||"").trim(),contact:String(u.contact||"").trim(),phone:String(u.phone||"").trim(),note:String(u.note||"").trim()}))};
+}
+
+// 新增、編輯個案表單裡的網絡單位區塊；單位名稱打字時會從服務資源清單跳出提示
+function NetworkUnitsEditor({value,onChange,resources}){
+  const list=Array.isArray(value)?value:[];
+  const [listId]=useState(()=>"nu-res-"+uid());
+  const upd=(id,k,v)=>onChange(list.map(u=>{
+    if(u.id!==id)return u;
+    const next={...u,[k]:v};
+    // 單位名稱跟服務資源清單的名稱一模一樣、電話還沒填時，帶出資源清單的電話
+    if(k==="unit"&&!String(u.phone||"").trim()){
+      const hit=(resources||[]).find(r=>r.name&&r.name===String(v).trim());
+      if(hit&&hit.phone)next.phone=hit.phone;
+    }
+    return next;
+  }));
+  const add=()=>onChange([...list,{id:uid(),unit:"",contact:"",phone:"",note:""}]);
+  const del=id=>onChange(list.filter(u=>u.id!==id));
+  return(
+    <div style={{marginBottom:20}}>
+      {list.length===0&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>還沒有網絡單位。社福中心、醫院、長照單位等窗口的電話，都可以記在這裡</div>}
+      {list.map((u,i)=>(
+        <div key={u.id} style={{padding:"10px 12px 12px",marginBottom:8,background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <span style={{fontSize:12,fontWeight:600,color:C.primary}}>第 {i+1} 筆</span>
+            <button type="button" onClick={()=>del(u.id)} title="刪除這筆網絡單位"
+              style={{padding:"2px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.danger,cursor:"pointer",fontSize:12,fontFamily:font}}>刪除</button>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"8px 12px"}}>
+            {NU_FIELDS.map(([k,label])=>(
+              <div key={k} style={{flex:"1 1 220px",minWidth:0}}>
+                <Label>{label}</Label>
+                <input value={u[k]||""} onChange={e=>upd(u.id,k,e.target.value)} list={k==="unit"?listId:undefined}
+                  placeholder={NU_HINTS[k]} style={inp({fontSize:13,background:C.card})}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <datalist id={listId}>{(resources||[]).filter(r=>r.name).map(r=><option key={r.id} value={r.name}/>)}</datalist>
+      <button type="button" onClick={add}
+        style={{padding:"6px 14px",borderRadius:8,border:`1px dashed ${C.primary}`,background:"#F0F7F4",color:C.primary,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:font}}>＋ 新增網絡單位</button>
+    </div>
+  );
+}
+
+// 顯示網絡單位清單，電話可以直接點撥
+function NetworkUnitsList({units}){
+  const list=(units||[]).filter(nuHasContent);
+  return <>{list.map(u=>(
+    <div key={u.id} style={{padding:"8px 12px",marginBottom:6,background:C.cardAlt,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,lineHeight:1.7}}>
+      <div><span style={{fontWeight:700,color:C.text}}>{u.unit||"未填單位"}</span>{u.contact&&<span style={{color:C.muted,marginLeft:8}}>{u.contact}</span>}</div>
+      {u.phone&&<div>📞 <PhoneLinks text={u.phone}/></div>}
+      {u.note&&<div style={{fontSize:12,color:C.muted,whiteSpace:"pre-wrap"}}>{u.note}</div>}
+    </div>
+  ))}</>;
+}
+
+// 從聯繫紀錄內容找電話：先用跟 PhoneLinks 一樣的規則抓數字串，再排除日期、案號這類不像電話的
+const REC_PHONE_SRC=/\(?\+?\d[\d\-()]{6,}\d/.source;
+const REC_NOT_ORG=["本人","同住家屬","親友","鄰居"]; // 這些聯繫對象不是單位，不拿來當網絡單位名稱
+function recPhoneOk(raw){
+  const d=raw.replace(/\D/g,"");
+  const sep=/[-()]/.test(raw);
+  if(/^\d{2,4}-\d{1,2}-\d{1,2}$/.test(raw))return false;           // 2026-10-28、115-10-28 這類日期
+  if(/^886/.test(d))return d.length>=11&&d.length<=12;               // +886 開頭
+  if(/^0/.test(d))return d.length>=9&&d.length<=(sep?14:10);         // 有區碼的市話、手機
+  return /^\d{3,4}-\d{4}$/.test(raw);                                // 沒區碼的市話要有連字號，例如 2306-1234
+}
+// 號碼前後那段文字，遇到換行或句號就停
+function recSnippet(s,start,end){
+  const isSep=ch=>/[\n。；;]/.test(ch);
+  let a=start;while(a>0&&!isSep(s[a-1])&&start-a<30)a--;
+  let b=end;while(b<s.length&&!isSep(s[b])&&b-end<20)b++;
+  const pre=a>0&&!isSep(s[a-1])?"…":"";
+  const post=b<s.length&&!isSep(s[b])?"…":"";
+  return pre+s.slice(a,b).trim()+post;
+}
+// 這個個案所有聯繫紀錄裡出現過的電話；個案資料或網絡單位已經有的號碼不重複列，最近的排前面
+function phonesFromRecords(c,records){
+  const known=new Set();
+  [c.phone,c.phone2,c.emergencyPhone,...(c.networkUnits||[]).map(u=>u.phone)].forEach(t=>{
+    const re=new RegExp(REC_PHONE_SRC,"g");let m;
+    while((m=re.exec(String(t||""))))known.add(m[0].replace(/\D/g,""));
+  });
+  const map=new Map();
+  (records||[]).filter(r=>r.caseId===c.id).forEach(r=>{
+    const s=String(r.content||"");
+    const re=new RegExp(REC_PHONE_SRC,"g");let m;
+    while((m=re.exec(s))){
+      const raw=m[0];
+      if(!recPhoneOk(raw))continue;
+      const d=raw.replace(/\D/g,"");
+      if(known.has(d))continue;
+      const persons=r.contactPersons||[];
+      const who=persons.length?persons.map(p=>p.type+(p.name?" "+p.name:"")).join("、")
+        :(r.contactPersonType?r.contactPersonType+(r.contactPerson?" "+r.contactPerson:""):(r.contactPerson||""));
+      // 號碼後面緊接著的分機一起帶，例如 02-2306-1234分機12
+      const tail=s.slice(m.index+raw.length).match(/^\s*(分機|轉|#|ext\.?)\s*\d{1,6}/i);
+      const full=raw+(tail?tail[0]:"");
+      // 聯繫對象是單位時，拿它的名稱當網絡單位名稱的預設值
+      const org=persons.length?(persons.find(p=>p.name&&!REC_NOT_ORG.includes(p.type))||{}).name||""
+        :(r.contactPerson&&!REC_NOT_ORG.some(t=>(r.contactPersonType||"").includes(t))?r.contactPerson:"");
+      const item={raw,full,date:r.date||"",who,snippet:recSnippet(s,m.index,m.index+raw.length)};
+      const old=map.get(d);
+      if(!old)map.set(d,{...item,recs:new Set([r.id]),unitGuess:org,guessDate:org?item.date:""});
+      else{
+        old.recs.add(r.id);
+        const keepFull=item.full.length>old.full.length?item.full:old.full;
+        if(item.date>old.date)Object.assign(old,item);
+        old.full=keepFull;
+        if(org&&item.date>=old.guessDate){old.unitGuess=org;old.guessDate=item.date;}
+      }
+    }
+  });
+  return [...map.values()].sort((a,b)=>b.date.localeCompare(a.date));
+}
+
+// 月報表點個案名跳出的小視窗：查回診紀錄、身障身分要用的身分資料，和各種聯絡電話
+function CaseQuickView({c,caseRecords,resources,onEdit,onClose,onAddUnit}){
+  const [showAll,setShowAll]=useState(false);
+  // 紀錄電話「加進網絡單位」：在卡片裡展開單位、窗口、電話，存進個案的網絡單位
+  const [adding,setAdding]=useState(null);
+  const [addSaving,setAddSaving]=useState(false);
+  const [listId]=useState(()=>"qv-res-"+uid());
+  const startAdd=p=>setAdding({key:p.raw,unit:p.unitGuess||"",contact:"",phone:p.full||p.raw});
+  const saveAdd=async()=>{
+    const u={unit:adding.unit.trim(),contact:adding.contact.trim(),phone:adding.phone.trim()};
+    if(!u.phone){alert("請填電話");return;}
+    if(!u.unit&&!u.contact){alert("請填單位或窗口");return;}
+    setAddSaving(true);
+    try{await onAddUnit({id:uid(),...u,note:""});setAdding(null);}
+    finally{setAddSaving(false);}
+  };
+  const recPhones=phonesFromRecords(c,caseRecords);
+  const units=(c.networkUnits||[]).filter(nuHasContent);
+  const age=c.birthDate?calcAgeFromDate(c.birthDate):(c.age?(/^\d+$/.test(String(c.age))?c.age+"歲":String(c.age)):"");
+  const head={fontSize:11,color:C.muted,fontWeight:600,letterSpacing:"0.06em",marginBottom:8};
+  const sec={borderTop:`1px solid ${C.border}`,paddingTop:14,marginTop:14};
+  const row={display:"flex",gap:10,fontSize:13,lineHeight:1.7};
+  const lab={color:C.muted,minWidth:64,flexShrink:0};
+  const empty={fontSize:13,color:C.muted};
+  const shownRec=showAll?recPhones:recPhones.slice(0,8);
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(26,51,50,0.45)",zIndex:1500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:C.card,borderRadius:16,width:"min(460px,94vw)",maxHeight:"calc(100vh - 32px)",display:"flex",flexDirection:"column",boxShadow:"0 16px 48px rgba(0,0,0,0.22)",overflow:"hidden"}}>
+        <div style={{background:C.sidebar,padding:"16px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:700,color:"#fff",fontFamily:serif}}>{c.name}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.55)",marginTop:2}}>{[c.caseNo,c.status].filter(Boolean).join("・")}</div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16}}>✕</button>
+        </div>
+        <div style={{padding:"16px 20px",overflowY:"auto"}}>
+          <div style={head}>身分資料</div>
+          <div style={row}><span style={lab}>身分證</span>{c.idNo?<span title="點一下整串選取" style={{fontWeight:600,letterSpacing:"0.04em",userSelect:"all",cursor:"text"}}>{c.idNo}</span>:<span style={empty}>未填</span>}</div>
+          <div style={row}><span style={lab}>生日</span>{c.birthDate?<span><span style={{fontWeight:600}}>民國 {fmtDate(c.birthDate)}</span><span style={{color:C.muted}}>・西元 {c.birthDate}{age?"・"+age:""}</span></span>:<span style={empty}>{age||"未填"}</span>}</div>
+
+          <div style={sec}>
+            <div style={head}>本人與緊急聯絡人</div>
+            <div style={row}><span style={lab}>本人</span>{c.phone?<span><PhoneLinks text={c.phone}/></span>:<span style={empty}>未填</span>}</div>
+            {c.phone2&&<div style={row}><span style={lab}>備用</span><span><PhoneLinks text={c.phone2}/></span></div>}
+            {(c.emergencyContact||c.emergencyPhone)&&<div style={row}><span style={lab}>緊急聯絡</span><span>{[c.emergencyContact,c.emergencyRelation].filter(Boolean).join("・")}{c.emergencyPhone&&<>{c.emergencyContact?"　":""}<PhoneLinks text={c.emergencyPhone}/></>}</span></div>}
+          </div>
+
+          <div style={sec}>
+            <div style={head}>網絡單位</div>
+            {units.length?<NetworkUnitsList units={units}/>:<div style={empty}>還沒有建立，按下方「編輯個案」新增</div>}
+          </div>
+
+          <div style={sec}>
+            <div style={head}>紀錄裡出現過的電話</div>
+            {recPhones.length===0&&<div style={empty}>這個個案的聯繫紀錄裡沒有找到其他電話</div>}
+            {shownRec.map(p=>(
+              <div key={p.raw+p.date} style={{padding:"8px 12px",marginBottom:6,background:"#F7F5EF",border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,lineHeight:1.6}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                  <span>📞 <PhoneLinks text={p.full||p.raw}/></span>
+                  <span style={{fontSize:11,color:C.muted}}>{fmtDate(p.date)}{p.recs.size>1?`・共 ${p.recs.size} 筆紀錄`:""}</span>
+                </div>
+                {p.who&&<div style={{fontSize:12,color:C.muted}}>{p.who}</div>}
+                <div style={{fontSize:12,color:C.text,wordBreak:"break-word"}}>{p.snippet}</div>
+                {onAddUnit&&adding?.key!==p.raw&&(
+                  <div style={{textAlign:"right",marginTop:4}}>
+                    <button type="button" onClick={()=>startAdd(p)}
+                      style={{padding:"3px 10px",borderRadius:6,border:`1px solid ${C.primary}`,background:"#F0F7F4",color:C.primary,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:font}}>＋ 加進網絡單位</button>
+                  </div>
+                )}
+                {onAddUnit&&adding?.key===p.raw&&(
+                  <div style={{marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.border}`}}>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:"6px 8px"}}>
+                      {[["unit","單位"],["contact","窗口"],["phone","電話"]].map(([k,l])=>(
+                        <div key={k} style={{flex:"1 1 120px",minWidth:0}}>
+                          <Label>{l}</Label>
+                          <input value={adding[k]} onChange={e=>{const v=e.target.value;setAdding(a=>({...a,[k]:v}));}} list={k==="unit"?listId:undefined}
+                            placeholder={NU_HINTS[k]} style={inp({fontSize:13,background:C.card,padding:"6px 10px"})}/>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:8}}>
+                      <Btn variant="secondary" onClick={()=>setAdding(null)} style={{padding:"5px 12px",fontSize:12}}>取消</Btn>
+                      <Btn onClick={saveAdd} disabled={addSaving} style={{padding:"5px 12px",fontSize:12,opacity:addSaving?0.7:1}}>{addSaving?"儲存中...":"儲存"}</Btn>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            <datalist id={listId}>{(resources||[]).filter(r=>r.name).map(r=><option key={r.id} value={r.name}/>)}</datalist>
+            {recPhones.length>8&&<button onClick={()=>setShowAll(v=>!v)} style={{background:"none",border:"none",color:C.primary,cursor:"pointer",fontSize:12,padding:0,fontFamily:font}}>{showAll?"只看最近 8 支":`顯示全部 ${recPhones.length} 支`}</button>}
+          </div>
+
+          {(c.registeredAddr||c.addr)&&(
+            <div style={sec}>
+              <div style={head}>地址</div>
+              {c.registeredAddr&&<div style={row}><span style={lab}>戶籍</span><MapLink addr={c.registeredAddr}/></div>}
+              {c.addr&&<div style={row}><span style={lab}>居住</span><MapLink addr={c.addr}/></div>}
+            </div>
+          )}
+        </div>
+        <div style={{padding:"12px 20px 16px",display:"flex",gap:8,justifyContent:"flex-end",borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+          <Btn variant="secondary" onClick={onClose}>關閉</Btn>
+          <Btn onClick={onEdit}>✏️ 編輯個案</Btn>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete, onEdit, onClose}){
@@ -1888,6 +2128,11 @@ function CaseViewModal({c, caseRecords, levelHistory, setData, onSave, onDelete,
               <Row label="備用電話" val={c.phone2&&<PhoneLinks text={c.phone2}/>}/>
               <Row label="緊急聯絡人" val={c.emergencyContact&&(c.emergencyContact+(c.emergencyRelation?"・"+c.emergencyRelation:""))}/>
               <Row label="緊急聯絡電話" val={c.emergencyPhone&&<PhoneLinks text={c.emergencyPhone}/>}/>
+            </div>
+          )}
+          {(c.networkUnits||[]).some(nuHasContent)&&(
+            <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>網絡單位</div>
+              <NetworkUnitsList units={c.networkUnits}/>
             </div>
           )}
           <div style={{marginBottom:20}}><div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.08em",marginBottom:8,paddingBottom:5,borderBottom:`1px solid ${C.border}`}}>進案資訊</div>
@@ -2430,7 +2675,6 @@ function CaseList({data,setData,onSave,onDelete,userName}){
   const [showMore,setShowMore]=useState(false);
   const [selectedIds,setSelectedIds]=useState(new Set());
   const [selectMode,setSelectMode]=useState(false);
-  const [contactPreview,setContactPreview]=useState(null);
   const [recordsCase,setRecordsCase]=useState(null);
   const [showDuplicates,setShowDuplicates]=useState(false);
 
@@ -2441,7 +2685,7 @@ function CaseList({data,setData,onSave,onDelete,userName}){
   });
   const save=async()=>{
     if(!form.name.trim()){alert("請填寫姓名");return;}
-    const newCase={...form,id:uid()};
+    const newCase={...nuClean(form),id:uid()};
     setData(d=>({...d,cases:[...d.cases,newCase]}));
     await onSave("cases",newCase);
     setForm(blank);setShowForm(false);
@@ -2573,81 +2817,9 @@ function CaseList({data,setData,onSave,onDelete,userName}){
     <div>
       {showImport&&<ExcelImporter onImport={handleImport} onClose={()=>setShowImport(false)} userName={userName}/>}
       {showRecImport&&<GovRecordImportModal data={data} setData={setData} onClose={()=>setShowRecImport(false)} userName={userName}/>}
-      {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
+      {editCase&&<CaseEditModal caseData={editCase} resources={data.resources} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
       {viewCase&&<CaseViewModal c={viewCase} caseRecords={data.caseRecords} levelHistory={data.levelHistory} setData={setData} onSave={onSave} onDelete={onDelete} onEdit={()=>{setEditCase(viewCase);setViewCase(null);}} onClose={()=>setViewCase(null)}/>}
       {recordsCase&&<CaseRecordsModal caseData={recordsCase} caseRecords={data.caseRecords||[]} setData={setData} onSave={onSave} onDelete={onDelete} onClose={()=>setRecordsCase(null)}/>}
-      {/* 聯繫資訊預覽 Modal */}
-      {contactPreview&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(26,51,50,0.45)",zIndex:1500,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
-          onClick={e=>{if(e.target===e.currentTarget)setContactPreview(null);}}>
-          <div style={{background:C.card,borderRadius:16,width:"min(400px,94vw)",boxShadow:"0 16px 48px rgba(0,0,0,0.22)",overflow:"hidden"}}>
-            {/* header */}
-            <div style={{background:C.sidebar,padding:"18px 22px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{fontSize:16,fontWeight:700,color:"#fff",fontFamily:serif}}>{contactPreview.name}</div>
-                <div style={{fontSize:11,color:"rgba(255,255,255,0.45)",marginTop:2}}>{contactPreview.caseNo||"—"}&nbsp;·&nbsp;{contactPreview.status||""}</div>
-              </div>
-              <button onClick={()=>setContactPreview(null)} style={{background:"rgba(255,255,255,0.1)",border:"none",color:"#fff",borderRadius:8,width:32,height:32,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-            </div>
-            {/* body */}
-            <div style={{padding:"20px 22px"}}>
-              {/* 本人電話 */}
-              <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:C.muted,fontWeight:600,letterSpacing:"0.06em",marginBottom:8}}>本人聯絡</div>
-                {contactPreview.phone?(
-                  <a href={`tel:${contactPreview.phone}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#F0F7F4",borderRadius:10,textDecoration:"none",color:C.text,marginBottom:6}}>
-                    <span style={{fontSize:18}}>📞</span>
-                    <div>
-                      <div style={{fontWeight:600,fontSize:14,color:C.primary}}>{contactPreview.phone}</div>
-                      <div style={{fontSize:11,color:C.muted}}>本人電話</div>
-                    </div>
-                  </a>
-                ):<div style={{fontSize:13,color:C.muted,padding:"8px 0"}}>（未填）</div>}
-                {contactPreview.phone2&&(
-                  <a href={`tel:${contactPreview.phone2}`} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:C.cardAlt,borderRadius:10,textDecoration:"none",color:C.text,border:`1px solid ${C.border}`}}>
-                    <span style={{fontSize:18}}>📱</span>
-                    <div>
-                      <div style={{fontWeight:600,fontSize:14}}>{contactPreview.phone2}</div>
-                      <div style={{fontSize:11,color:C.muted}}>備用電話</div>
-                    </div>
-                  </a>
-                )}
-              </div>
-              {/* 緊急聯絡人 */}
-              <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16}}>
-                <div style={{fontSize:11,color:C.muted,fontWeight:600,letterSpacing:"0.06em",marginBottom:8}}>緊急聯絡人</div>
-                {(contactPreview.emergencyContact||contactPreview.emergencyPhone)?(
-                  <div style={{background:"#FFF8ED",border:"1px solid #F0D8A8",borderRadius:10,padding:"12px 14px"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                      <span style={{fontWeight:600,fontSize:14,color:C.text}}>{contactPreview.emergencyContact||"（姓名未填）"}</span>
-                      {contactPreview.emergencyRelation&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#F0D8A8",color:"#7A5A20"}}>{contactPreview.emergencyRelation}</span>}
-                    </div>
-                    {contactPreview.emergencyPhone&&(
-                      <a href={`tel:${contactPreview.emergencyPhone}`} style={{display:"flex",alignItems:"center",gap:8,textDecoration:"none",color:C.primary,fontWeight:600,fontSize:14}}>
-                        <span>📞</span>{contactPreview.emergencyPhone}
-                      </a>
-                    )}
-                  </div>
-                ):<div style={{fontSize:13,color:C.muted,padding:"8px 0"}}>（未填）</div>}
-              </div>
-              {/* 地址 */}
-              {(contactPreview.registeredAddr||contactPreview.addr)&&(
-                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,marginTop:2}}>
-                  <div style={{fontSize:11,color:C.muted,fontWeight:600,letterSpacing:"0.06em",marginBottom:8}}>地址資訊</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {contactPreview.registeredAddr&&<div style={{fontSize:13,color:C.text,lineHeight:1.6}}>🏠 <span style={{color:C.muted,fontSize:11}}>戶籍</span>　{contactPreview.registeredAddr}</div>}
-                    {contactPreview.addr&&<div style={{fontSize:13,color:C.text,lineHeight:1.6}}>📍 <span style={{color:C.muted,fontSize:11}}>居住</span>　{contactPreview.addr}</div>}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div style={{padding:"12px 22px 18px",display:"flex",gap:8,justifyContent:"flex-end"}}>
-              <Btn variant="secondary" onClick={()=>setContactPreview(null)}>關閉</Btn>
-              <Btn onClick={()=>{setEditCase(contactPreview);setContactPreview(null);}}>✏️ 編輯個案</Btn>
-            </div>
-          </div>
-        </div>
-      )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:selectMode?12:24,flexWrap:"wrap",gap:10}}>
         <H1>個案管理</H1>
         <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -2815,6 +2987,8 @@ function CaseList({data,setData,onSave,onDelete,userName}){
     <FormRow label="緊急聯絡人關係" field="emergencyRelation" value={form["emergencyRelation"]} onChange={fld}/>
     <FormRow label="緊急聯絡電話" field="emergencyPhone" value={form["emergencyPhone"]} onChange={fld}/>
   </div>
+  <div style={{fontSize:12,color:C.muted,marginBottom:12,fontWeight:500}}>網絡單位</div>
+  <NetworkUnitsEditor value={form.networkUnits} onChange={v=>fld("networkUnits",v)} resources={data.resources}/>
   <div onClick={()=>setShowIntake(v=>!v)} style={{fontSize:12,color:C.muted,marginBottom:12,fontWeight:500,cursor:"pointer",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
     <span style={{fontSize:10}}>{showIntake?"▼":"▶"}</span>進案資訊<span style={{fontWeight:400,fontSize:11}}>（{showIntake?"點擊收起":"點擊展開"}）</span>
   </div>
@@ -4211,6 +4385,30 @@ function BookPicker({book,newEntries,initQuery,title,onPick,onClose,onCreate,onD
 
 function MonthlyReport({data,setData,onSave,onDelete,userName}){
   const now=new Date();
+  // 點個案名跳出個案小視窗；從小視窗按編輯會打開編輯視窗，存檔或取消後回到小視窗
+  const [quickId,setQuickId]=useState(null);
+  const [quickEdit,setQuickEdit]=useState(null);
+  // 存檔邏輯照個案管理的 saveEdit：改了等級就自動記一筆等級異動
+  const saveQuickEdit=async updated=>{
+    const prev=(data.cases||[]).find(c=>c.id===updated.id);
+    for(const f of ["systemLevel","initialLevel","changeLevel"]){
+      if(prev&&prev[f]&&updated[f]&&prev[f]!==updated[f]){
+        const record={id:uid(),caseId:updated.id,caseName:updated.name,date:toDay(),field:f,from:prev[f],to:updated[f],note:"",auto:true};
+        setData(d=>({...d,levelHistory:[...(d.levelHistory||[]),record]}));
+        await onSave("levelHistory",record);
+      }
+    }
+    setData(d=>({...d,cases:(d.cases||[]).map(c=>c.id===updated.id?updated:c)}));
+    await onSave("cases",updated);
+  };
+  // 小視窗的「加進網絡單位」：把一筆網絡單位接在個案原本的網絡單位後面存檔
+  const addQuickUnit=async(caseId,unit)=>{
+    const cur=(data.cases||[]).find(c=>c.id===caseId);
+    if(!cur)return;
+    const updated=nuClean({...cur,networkUnits:[...(cur.networkUnits||[]),unit]});
+    setData(d=>({...d,cases:(d.cases||[]).map(c=>c.id===caseId?updated:c)}));
+    await onSave("cases",updated);
+  };
   const [year,setYear]=useState(now.getFullYear());
   const [month,setMonth]=useState(now.getMonth()+1);
 
@@ -4915,6 +5113,8 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
 
   return(
     <div>
+      {quickId&&!quickEdit&&(()=>{const qc=(data.cases||[]).find(x=>x.id===quickId);return qc?<CaseQuickView c={qc} caseRecords={data.caseRecords} resources={data.resources} onEdit={()=>setQuickEdit(qc)} onClose={()=>setQuickId(null)} onAddUnit={u=>addQuickUnit(qc.id,u)}/>:null;})()}
+      {quickEdit&&<CaseEditModal caseData={quickEdit} resources={data.resources} onSave={saveQuickEdit} onClose={()=>setQuickEdit(null)}/>}
       {/* 標題與月份切換 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <h1 style={{fontSize:22,fontWeight:700,fontFamily:serif,color:C.text,margin:0}}>月服務報表</h1>
@@ -5479,7 +5679,7 @@ function MonthlyReport({data,setData,onSave,onDelete,userName}){
                         style={{width:16,height:16,margin:0,cursor:"pointer",accentColor:C.primary}}/>
                     </span>
                     <span className="mr-date" style={{color:C.primary,fontWeight:600,whiteSpace:"nowrap"}}>{fmtDate(r.date)}</span>
-                    <span className="mr-case" style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{caseName(r.caseId)}</span>
+                    <span className="mr-case" style={{fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{data.cases.some(x=>x.id===r.caseId)?<span title="看個案資料和電話" onClick={e=>{e.stopPropagation();setQuickId(r.caseId);}} style={{cursor:"pointer",textDecoration:"underline",textDecorationStyle:"dotted",textUnderlineOffset:3}}>{caseName(r.caseId)}</span>:caseName(r.caseId)}</span>
                     <span className="mr-who" style={{color:C.muted,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(r.contactPersons&&r.contactPersons.length>0)?r.contactPersons.map(p=>p.type+(p.name?" "+p.name:"")).join("、"):(r.contactPersonType?r.contactPersonType+(r.contactPerson?" "+r.contactPerson:""):r.contactPerson||"—")}</span>
                     <span className="mr-method" style={{fontSize:11,whiteSpace:"nowrap"}}>
                       <span style={{padding:"2px 7px",borderRadius:20,background:"#EEF7F3",color:C.primary,fontWeight:600}}>{r.contactMethod||"—"}</span>
@@ -6054,7 +6254,7 @@ function CaseReconcile({data,setData,onSave,userName}){
             render={d=><>{who(d.f.no,d.f.name)}<span style={{marginLeft:8}}>{d.f.lvRaw}</span>{d.first.lvRaw!==d.f.lvRaw&&<span style={{marginLeft:8,color:C.accent}}>第一列是 {d.first.lvRaw}</span>}</>}/>
           <Sec title="同名，沒辦法判斷是哪一位" color="#EAF0F8" items={res.ambiguous} hint="系統裡有好幾個同名個案，又沒有案號可以對，請人工確認。"
             render={a=><>{who(a.f.no,a.f.name)}<span style={{marginLeft:8}}>{a.f.lvRaw}</span><span style={{color:C.muted,marginLeft:8}}>系統同名 {a.hits.length} 位：</span>{a.hits.map(c=><span key={c.id} style={{marginLeft:8}}>{c.caseNo||"沒有案號"}・{c.changeLevel?c.changeLevel+"級":"沒填等級"}・{c.status}{editBtn(c)}</span>)}</>}/>
-          {editCase&&<CaseEditModal caseData={editCase} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
+          {editCase&&<CaseEditModal caseData={editCase} resources={data.resources} onSave={saveEdit} onClose={()=>setEditCase(null)}/>}
           <div style={{fontSize:11,color:C.muted,marginTop:10}}>配對方式：先用案號，配不到再用姓名。兩邊一致的有 {res.pairs.filter(p=>!res.lvDiff.includes(p)&&!res.inactive.includes(p)&&!res.nameDiff.includes(p)).length} 筆。</div>
         </>
       )}
