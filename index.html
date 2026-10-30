@@ -5793,11 +5793,198 @@ function UserSettings({userName,onSave,onClose}){
   );
 }
 
+// ── 離職盤點：統計手上還沒處理完的資料量 ─────────────────────────
+// 只讀取現有資料做統計：這個元件只拿到 data，沒有 setData、onSave，不會寫入任何資料
+//  1. 待回填個管系統：沒勾登打紀錄 caseSysDone 的聯繫紀錄，一筆算一筆，按服務類型 contactMethod 分開
+//  2. ISP 欠期：沿用 ISP 提醒的 ispStatus，開案中一、二級個案的欠期加總；還沒填開始執行日的另外列
+//  3. 即將到期：今天到截止日之間到期、還沒勾的期別；還沒填開始執行日的個案，首次 ISP 期限落在期間內算 1 期
+//  4. 開案中個案：按現在等級 changeLevel 分開
+//  5. 每月新增：按服務日期分月算筆數；平均從系統開始使用的月份算到上個月，本月不計
+//     系統開始使用的月份：不是從政府月報表匯入的紀錄裡，最早的服務日期所在月份
+const HO_LEVELS=["一","二","三","四","A","B","C"];
+function hoYm(ym){const [y,m]=ym.split("-").map(Number);return`${y-1911}年${m}月`;}
+function hoNextYm(ym){const [y,m]=ym.split("-").map(Number);return m===12?`${y+1}-01`:`${y}-${String(m+1).padStart(2,"0")}`;}
+function hoMethodKey(r){const m=String(r.contactMethod||"").trim();return m||"未填";}
+// 依月報表的服務類型順序排，系統以外的值排在後面，沒填的排最後；0 筆的不列
+function hoMethodList(by){
+  const known=CONTACT_METHODS.filter(m=>by[m]);
+  const other=Object.keys(by).filter(m=>m!=="未填"&&!CONTACT_METHODS.includes(m)&&by[m]).sort();
+  return [...known,...other,...(by["未填"]?["未填"]:[])].map(m=>[m,by[m]]);
+}
+function hoStats(data,cutoff){
+  const now=new Date();
+  const today=toDay();
+  const curYm=today.slice(0,7);
+  const recs=data.caseRecords||[];
+  const hasDate=r=>/^\d{4}-\d{2}-\d{2}/.test(r.date||"");
+
+  // 資料涵蓋的起訖月份：所有聯繫紀錄裡最早和最晚的服務日期
+  const yms=recs.filter(hasDate).map(r=>r.date.slice(0,7)).sort();
+  const range=yms.length?{from:yms[0],to:yms[yms.length-1]}:null;
+  const noDate=recs.filter(r=>!hasDate(r)).length;
+
+  // 1. 待回填個管系統
+  const pendBy={};let pendTotal=0;
+  recs.forEach(r=>{if(r.caseSysDone)return;const m=hoMethodKey(r);pendBy[m]=(pendBy[m]||0)+1;pendTotal++;});
+
+  // 2. ISP 欠期，跟 ISP 提醒頁用同一個 ispStatus
+  const lh=data.levelHistory||[];
+  const open=(data.cases||[]).filter(c=>c.status==="開案中");
+  const rows=open.filter(ispIsTracked).map(c=>({c,s:ispStatus(c,lh,today)}));
+  const owedTotal=rows.reduce((n,r)=>n+r.s.owed.length,0);
+  const owedCases=rows.filter(r=>r.s.owed.length>0).length;
+  const needStart=rows.filter(r=>r.s.needStart).length;
+  const noOpenDate=rows.filter(r=>r.s.noOpen).length;
+  const levelPending=rows.filter(r=>r.s.levelChange).length;
+
+  // 3. 即將到期：期限落在今天到截止日之間、還沒勾的期別
+  let soon=null;
+  if(ispIsDate(cutoff)&&cutoff>=today){
+    let n=0,first=0;const cs=new Set();
+    rows.forEach(({c,s})=>{
+      if(s.noOpen)return;
+      if(s.first){if(s.first.due>=today&&s.first.due<=cutoff){n++;first++;cs.add(c.id);}return;}
+      // 每期期限是開始日前一天，所以排到截止日隔天開始的那期為止
+      ispPeriods(c,ispAddDays(cutoff,1)).forEach(p=>{
+        if(p.k===0||ispIsChecked(c,p.start))return;
+        const due=ispAddDays(p.start,-1);
+        if(due>=today&&due<=cutoff){n++;cs.add(c.id);}
+      });
+    });
+    soon={n,first,cases:cs.size};
+  }
+
+  // 4. 開案中個案，按現在等級
+  const lvBy={};
+  open.forEach(c=>{const lv=String(c.changeLevel||"").trim()||"未填";lvBy[lv]=(lvBy[lv]||0)+1;});
+  const lvList=[...HO_LEVELS.filter(l=>lvBy[l]),...Object.keys(lvBy).filter(l=>l!=="未填"&&!HO_LEVELS.includes(l)).sort(),...(lvBy["未填"]?["未填"]:[])].map(l=>[l,lvBy[l]]);
+
+  // 5. 每月新增服務量，算筆數
+  const monthly={};
+  recs.forEach(r=>{if(!hasDate(r))return;const ym=r.date.slice(0,7);const o=monthly[ym]||(monthly[ym]={total:0,by:{}});const m=hoMethodKey(r);o.by[m]=(o.by[m]||0)+1;o.total++;});
+  const sysYms=recs.filter(r=>hasDate(r)&&!r.importedFrom).map(r=>r.date.slice(0,7)).sort();
+  const sysStart=sysYms.length?sysYms[0]:null;
+  // 平均用的月份：系統開始使用的月份到上個月，中間沒有紀錄的月份算 0 筆
+  const avgYms=[];
+  if(sysStart){for(let ym=sysStart,g=0;ym<curYm&&g<600;ym=hoNextYm(ym),g++)avgYms.push(ym);}
+  let avg=null;
+  if(avgYms.length){
+    const sumBy={};let sum=0;
+    avgYms.forEach(ym=>{const o=monthly[ym];if(!o)return;sum+=o.total;Object.entries(o.by).forEach(([m,v])=>{sumBy[m]=(sumBy[m]||0)+v;});});
+    avg={sum,total:sum/avgYms.length,by:Object.fromEntries(Object.entries(sumBy).map(([m,v])=>[m,v/avgYms.length])),months:avgYms.length,from:avgYms[0],to:avgYms[avgYms.length-1]};
+  }
+  // 月份列表：涵蓋範圍內每個月都列，新的在上面
+  const monthRows=[];
+  if(range){for(let ym=range.from,g=0;ym<=range.to&&g<600;ym=hoNextYm(ym),g++)monthRows.unshift(ym);}
+
+  return {now,today,curYm,range,noDate,recCount:recs.length,pendBy,pendTotal,openCount:open.length,tracked:rows.length,owedTotal,owedCases,needStart,noOpenDate,levelPending,soon,lvList,monthly,monthRows,sysStart,avg};
+}
+
+function HandoverStats({data}){
+  const [cutoff,setCutoff]=useState("");
+  // 資料或截止日一變就重算，統計時間跟著更新
+  const st=React.useMemo(()=>hoStats(data,cutoff),[data,cutoff]);
+  const p2=n=>String(n).padStart(2,"0");
+  const at=`${st.now.getFullYear()-1911}/${st.now.getMonth()+1}/${st.now.getDate()} ${p2(st.now.getHours())}:${p2(st.now.getMinutes())}`;
+  const f1=x=>x.toFixed(1);
+  const box={background:C.card,borderRadius:14,border:`1px solid ${C.border}`,padding:"16px 20px",marginBottom:16};
+  const title=t=><div style={{fontSize:15,fontWeight:700,color:C.text,fontFamily:serif,marginBottom:8}}>{t}</div>;
+  const big=(n,unit,color=C.text)=><span style={{fontSize:28,fontWeight:700,color,fontFamily:serif,lineHeight:1.2}}>{n}<span style={{fontSize:13,fontWeight:500,color:C.muted,marginLeft:4}}>{unit}</span></span>;
+  const side=t=><span style={{fontSize:13,color:C.muted}}>{t}</span>;
+  const note=(t,color=C.muted)=><div style={{fontSize:12,color,marginTop:6,lineHeight:1.7}}>{t}</div>;
+  const chips=list=>list.length?<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10}}>{list.map(([k,v])=><span key={k} style={{padding:"3px 10px",borderRadius:20,fontSize:12,background:C.cardAlt,border:`1px solid ${C.border}`,color:C.text,whiteSpace:"nowrap"}}>{k} <b>{v}</b></span>)}</div>:null;
+  const row={display:"flex",alignItems:"baseline",gap:"4px 12px",flexWrap:"wrap"};
+  const lvLabel=l=>l==="未填"?"未填現在等級":HO_LEVELS.includes(l)?`${l}級`:`填「${l}」`;
+  const tag=(t,color)=><span style={{fontSize:11,padding:"1px 8px",borderRadius:20,border:`1px solid ${C.border}`,color:color||C.muted,whiteSpace:"nowrap"}}>{t}</span>;
+
+  return(
+    <div>
+      <H1>離職盤點</H1>
+      <div style={{marginTop:-14,marginBottom:18,fontSize:12,color:C.muted,lineHeight:1.8}}>
+        <div>聯繫紀錄涵蓋：{st.range?`${hoYm(st.range.from)} 到 ${hoYm(st.range.to)}`:"還沒有聯繫紀錄"}・統計時間：{at}</div>
+        <div>這一頁只讀取資料做統計，不會修改任何紀錄；資料有變動時數字會自動重算</div>
+      </div>
+
+      <div style={box}>
+        {title("待回填個管系統的聯繫紀錄")}
+        <div style={row}>{big(st.pendTotal,"筆",st.pendTotal>0?C.danger:C.text)}{side(`聯繫紀錄共 ${st.recCount} 筆`)}</div>
+        {chips(hoMethodList(st.pendBy))}
+        {note("還沒勾「登打紀錄」的聯繫紀錄，不分月份、不分個案案況，一筆算一筆")}
+      </div>
+
+      <div style={box}>
+        {title("ISP 欠期")}
+        <div style={row}>{big(st.owedTotal,"期",st.owedTotal>0?C.danger:C.text)}{side(`有欠期的個案 ${st.owedCases} 案`)}</div>
+        {note(`對象是開案中、現在等級一或二級的個案，共 ${st.tracked} 案；算法和 ISP 提醒頁相同，每期期限是前一期最後一天，期限過了還沒勾就算欠一期`)}
+        {st.needStart>0&&note(`另有 ${st.needStart} 案首次 ISP 期限已過、還沒填開始執行日，排不出期別，沒有算進上面的期數`,C.danger)}
+        {st.levelPending>0&&note(`轉級待處理 ${st.levelPending} 案，要不要寫新的 ISP 還沒決定，沒有另外算進期數`)}
+        {st.noOpenDate>0&&note(`${st.noOpenDate} 案沒有開案時間，無法計算`)}
+      </div>
+
+      <div style={box}>
+        {title("即將到期的 ISP")}
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:C.text}}>截止日期</span>
+          <input type="date" value={cutoff} onChange={e=>setCutoff(e.target.value)} style={inp({width:170,padding:"6px 10px",fontSize:13})}/>
+          {cutoff&&<button onClick={()=>setCutoff("")} style={{border:"none",background:"none",color:C.muted,cursor:"pointer",fontSize:12,fontFamily:font}}>清除</button>}
+        </div>
+        {!cutoff&&note("選擇截止日期後，計算今天到那天之間會到期的期數")}
+        {cutoff&&!st.soon&&note("截止日期要選今天或之後",C.danger)}
+        {st.soon&&<>
+          <div style={{...row,marginTop:10}}>{big(st.soon.n,"期",st.soon.n>0?C.accent:C.text)}{side(`共 ${st.soon.cases} 案`)}</div>
+          {st.soon.first>0&&note(`其中 ${st.soon.first} 期是首次 ISP`)}
+          {note(`加上已經欠的 ${st.owedTotal} 期，到 ${fmtDate(cutoff)} 為止共要補 ${st.owedTotal+st.soon.n} 期`,C.text)}
+          {note(`算今天 ${fmtDate(st.today)} 到 ${fmtDate(cutoff)} 之間到期、還沒勾的期別；還沒填開始執行日的個案，只算首次 ISP，之後的期別要等填了開始執行日才排得出來`)}
+          {st.needStart>0&&note(`首次 ISP 已逾期、還沒填開始執行日的 ${st.needStart} 案不在內`)}
+        </>}
+      </div>
+
+      <div style={box}>
+        {title("開案中個案")}
+        <div style={row}>{big(st.openCount,"案")}</div>
+        {chips(st.lvList.map(([l,v])=>[lvLabel(l),v]))}
+        {note("案況是開案中的個案，按現在等級分開")}
+      </div>
+
+      <div style={box}>
+        {title("每月新增服務量")}
+        {st.avg
+          ?<>
+            <div style={row}>{big(f1(st.avg.total),"筆／月")}{side(`${hoYm(st.avg.from)} 到 ${hoYm(st.avg.to)}，共 ${st.avg.months} 個月 ${st.avg.sum} 筆`)}</div>
+            {chips(hoMethodList(st.avg.by).map(([m,v])=>[m,f1(v)]))}
+            {note(`平均從系統開始使用的 ${hoYm(st.sysStart)} 算到上個月，本月還沒過完不計；系統開始使用的月份是用非匯入紀錄裡最早的服務日期判斷`)}
+          </>
+          :note(st.sysStart?"系統使用還不到一個完整月份，本月不計，暫時無法計算平均":"還沒有在系統裡登打的紀錄，無法計算平均")}
+        {note("這裡算的是筆數；月報表的服務方式統計是加總次數，同一個月的數字可能不一樣")}
+        {st.noDate>0&&note(`另有 ${st.noDate} 筆沒有服務日期，沒有算進每月筆數`)}
+        {st.monthRows.length>0&&(
+          <div style={{marginTop:12}}>
+            {st.monthRows.map(ym=>{
+              const o=st.monthly[ym]||{total:0,by:{}};
+              const out=st.sysStart&&ym<st.sysStart?"匯入的舊紀錄，不計入平均":ym===st.curYm?"本月，不計入平均":ym>st.curYm?"未來日期，不計入平均":!st.sysStart?"不計入平均":"";
+              return(
+                <div key={ym} style={{display:"flex",alignItems:"baseline",gap:"2px 12px",flexWrap:"wrap",padding:"7px 0",borderTop:`1px solid ${C.border}`,fontSize:13,color:out?C.muted:C.text}}>
+                  <span style={{fontWeight:600,minWidth:76}}>{hoYm(ym)}</span>
+                  <span style={{minWidth:52}}>共 {o.total} 筆</span>
+                  <span style={{flex:1,minWidth:160}}>{hoMethodList(o.by).map(([m,v])=>`${m} ${v}`).join("、")}</span>
+                  {out&&tag(out)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── SIDEBAR ─────────────────────────────────────────────────────
 function Sidebar({view,setView,syncStatus,onSetup,onLogout,userName,onUserSettings}){
   const items=[{id:"dashboard",label:"總覽",icon:"⊞"},{id:"calendar",label:"行事曆",icon:"◻"},{id:"cases",label:"個案管理",icon:"◉"},{id:"consult",label:"諮詢紀錄",icon:"☎"},{id:"resources",label:"服務資源",icon:"◈"},{id:"diary",label:"工作日誌",icon:"◷"},{id:"monthly",label:"月報表",icon:"📊"}];
   // ISP 提醒獨立一頁，放在個案管理後面
   items.splice(items.findIndex(x=>x.id==="cases")+1,0,{id:"isp",label:"ISP 提醒",icon:"◎"});
+  // 離職盤點放在最後，只做統計
+  items.push({id:"handover",label:"離職盤點",icon:"▤"});
   return(
     <div className="sidebar" style={{width:210,background:C.sidebar,display:"flex",flexDirection:"column",flexShrink:0,height:"100vh"}}>
       <div className="brand" style={{padding:"28px 20px 20px",borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
@@ -6409,6 +6596,7 @@ function App(){
         {view==="resources"&&<ResourceList data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="diary"    &&<DiaryLog  data={data} setData={setData} onSave={onSave} onDelete={onDelete}/>}
         {view==="monthly"  &&<MonthlyReport data={data} setData={setData} onSave={onSave} onDelete={onDelete} userName={userName}/>}
+        {view==="handover" &&<HandoverStats data={data}/>}
       </div>
     </div>
   );
